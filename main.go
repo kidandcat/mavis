@@ -27,12 +27,12 @@ var (
 
 // Tunnel process tracking
 var (
-	ngrokProcess  *os.Process
-	buildProcess  *os.Process
-	ngrokPort     string
-	ngrokWorkDir  string
-	ngrokBuildCmd string
-	ngrokMutex    sync.Mutex
+	onlineProcess  *os.Process
+	buildProcess   *os.Process
+	onlinePort     string
+	onlineWorkDir  string
+	onlineBuildCmd string
+	onlineMutex    sync.Mutex
 )
 
 func main() {

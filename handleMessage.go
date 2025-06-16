@@ -39,17 +39,17 @@ func handleMessage(ctx context.Context, message *models.Message) {
 				handleStatusCommand(ctx, message)
 				return
 			case "/stop":
-				// Check if it's the ngrok stop command or agent stop command
+				// Check if it's the online stop command or agent stop command
 				if len(parts) == 1 {
-					// No arguments, it's ngrok stop
-					handleNgrokStopCommand(ctx, message)
+					// No arguments, it's online stop
+					handleOnlineStopCommand(ctx, message)
 				} else {
 					// Has arguments, it's agent stop
 					handleStopCommand(ctx, message)
 				}
 				return
 			case "/start":
-				handleNgrokStartCommand(ctx, message)
+				handleOnlineStartCommand(ctx, message)
 				return
 			case "/new_branch":
 				handleGitCodeCommand(ctx, message)
@@ -1092,7 +1092,7 @@ PR URL: %s`, prURL, prURL, prURL, prURL, prURL, prURL, prURL, prURL, prURL)
 		agentID, prURL, directory, agentID))
 }
 
-func handleNgrokStartCommand(ctx context.Context, message *models.Message) {
+func handleOnlineStartCommand(ctx context.Context, message *models.Message) {
 	parts := strings.Fields(message.Text)
 	if len(parts) < 4 {
 		SendMessage(ctx, b, message.Chat.ID, "❌ Please provide workdir, port, and build command.\nUsage: /start <workdir> <port> <build command...>\n\nExample: /start ~/reservas_rb 3000 rails s")
@@ -1127,12 +1127,12 @@ func handleNgrokStartCommand(ctx context.Context, message *models.Message) {
 		return
 	}
 
-	ngrokMutex.Lock()
-	defer ngrokMutex.Unlock()
+	onlineMutex.Lock()
+	defer onlineMutex.Unlock()
 
 	// Check if tunnel is already running
-	if ngrokProcess != nil {
-		SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("❌ Tunnel is already running!\n📁 Workdir: %s\n🔌 Port: %s\n🛠️ Command: %s\n\nUse /stop to stop it first.", ngrokWorkDir, ngrokPort, ngrokBuildCmd))
+	if onlineProcess != nil {
+		SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("❌ Tunnel is already running!\n📁 Workdir: %s\n🔌 Port: %s\n🛠️ Command: %s\n\nUse /stop to stop it first.", onlineWorkDir, onlinePort, onlineBuildCmd))
 		return
 	}
 
@@ -1170,19 +1170,19 @@ func handleNgrokStartCommand(ctx context.Context, message *models.Message) {
 
 	// Create pipes to capture online tool output
 	// Build online command with optional server URL
-	var ngrokCmd *exec.Cmd
+	var onlineCmd *exec.Cmd
 	if OnlineServerURL != "" {
-		ngrokCmd = exec.Command("online", "expose", port, "--server", OnlineServerURL)
+		onlineCmd = exec.Command("online", "expose", port, "--server", OnlineServerURL)
 	} else {
-		ngrokCmd = exec.Command("online", "expose", port)
+		onlineCmd = exec.Command("online", "expose", port)
 	}
-	ngrokStdout, err := ngrokCmd.StdoutPipe()
+	onlineStdout, err := onlineCmd.StdoutPipe()
 	if err != nil {
 		buildCmd.Process.Kill()
 		SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("❌ Failed to create stdout pipe: %v", err))
 		return
 	}
-	ngrokStderr, err := ngrokCmd.StderrPipe()
+	onlineStderr, err := onlineCmd.StderrPipe()
 	if err != nil {
 		buildCmd.Process.Kill()
 		SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("❌ Failed to create stderr pipe: %v", err))
@@ -1190,10 +1190,10 @@ func handleNgrokStartCommand(ctx context.Context, message *models.Message) {
 	}
 
 	// Capture stderr for error reporting
-	var ngrokErrorBuffer strings.Builder
-	ngrokStderrTee := io.TeeReader(ngrokStderr, &ngrokErrorBuffer)
+	var onlineErrorBuffer strings.Builder
+	onlineStderrTee := io.TeeReader(onlineStderr, &onlineErrorBuffer)
 
-	if err := ngrokCmd.Start(); err != nil {
+	if err := onlineCmd.Start(); err != nil {
 		buildCmd.Process.Kill()
 		// Try to run the command directly to get error output
 		var testCmd *exec.Cmd
@@ -1212,14 +1212,14 @@ func handleNgrokStartCommand(ctx context.Context, message *models.Message) {
 	}
 
 	// Store the process info
-	ngrokProcess = ngrokCmd.Process
+	onlineProcess = onlineCmd.Process
 	buildProcess = buildCmd.Process
-	ngrokPort = port
-	ngrokWorkDir = absWorkdir
-	ngrokBuildCmd = buildCmdStr
+	onlinePort = port
+	onlineWorkDir = absWorkdir
+	onlineBuildCmd = buildCmdStr
 
-	// Send initial message indicating ngrok is starting
-	SendMessage(ctx, b, message.Chat.ID, "🔄 Starting ngrok tunnel...\n\n📋 *Ngrok output:*")
+	// Send initial message indicating online tunnel is starting
+	SendMessage(ctx, b, message.Chat.ID, "🔄 Starting online tunnel...\n\n📋 *Online tunnel output:*")
 
 	// Channel to collect output
 	outputChan := make(chan string, 100)
@@ -1235,8 +1235,8 @@ func handleNgrokStartCommand(ctx context.Context, message *models.Message) {
 	}
 
 	// Start goroutines to read stdout and stderr
-	go readOutput(ngrokStdout, "")
-	go readOutput(ngrokStderrTee, "❗ ")
+	go readOutput(onlineStdout, "")
+	go readOutput(onlineStderrTee, "❗ ")
 
 	// Goroutine to collect and send output
 	go func() {
@@ -1302,36 +1302,36 @@ func handleNgrokStartCommand(ctx context.Context, message *models.Message) {
 	go func() {
 		// Wait for either process to exit
 		buildCmd.Wait()
-		ngrokCmd.Wait()
+		onlineCmd.Wait()
 
-		ngrokMutex.Lock()
-		if ngrokProcess != nil {
+		onlineMutex.Lock()
+		if onlineProcess != nil {
 			// Clean up
-			ngrokProcess = nil
+			onlineProcess = nil
 			buildProcess = nil
-			ngrokPort = ""
-			ngrokWorkDir = ""
-			ngrokBuildCmd = ""
-			ngrokMutex.Unlock()
+			onlinePort = ""
+			onlineWorkDir = ""
+			onlineBuildCmd = ""
+			onlineMutex.Unlock()
 
 			SendMessage(ctx, b, message.Chat.ID, "⚠️ Online tunnel and build process have stopped.")
 		} else {
-			ngrokMutex.Unlock()
+			onlineMutex.Unlock()
 		}
 	}()
 }
 
-func handleNgrokStopCommand(ctx context.Context, message *models.Message) {
-	ngrokMutex.Lock()
-	defer ngrokMutex.Unlock()
+func handleOnlineStopCommand(ctx context.Context, message *models.Message) {
+	onlineMutex.Lock()
+	defer onlineMutex.Unlock()
 
-	if ngrokProcess == nil {
+	if onlineProcess == nil {
 		SendMessage(ctx, b, message.Chat.ID, "❌ No tunnel is currently running.")
 		return
 	}
 
 	// Kill the tunnel process
-	if err := ngrokProcess.Kill(); err != nil {
+	if err := onlineProcess.Kill(); err != nil {
 		SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("❌ Failed to stop tunnel: %v", err))
 		return
 	}
@@ -1342,19 +1342,19 @@ func handleNgrokStopCommand(ctx context.Context, message *models.Message) {
 	}
 
 	// Also try to kill any process using the port
-	killPortCmd := exec.Command("sh", "-c", fmt.Sprintf("lsof -ti:%s | xargs kill -9 2>/dev/null || true", ngrokPort))
+	killPortCmd := exec.Command("sh", "-c", fmt.Sprintf("lsof -ti:%s | xargs kill -9 2>/dev/null || true", onlinePort))
 	killPortCmd.Run()
 
-	workdir := ngrokWorkDir
-	port := ngrokPort
-	cmd := ngrokBuildCmd
+	workdir := onlineWorkDir
+	port := onlinePort
+	cmd := onlineBuildCmd
 
 	// Clean up
-	ngrokProcess = nil
+	onlineProcess = nil
 	buildProcess = nil
-	ngrokPort = ""
-	ngrokWorkDir = ""
-	ngrokBuildCmd = ""
+	onlinePort = ""
+	onlineWorkDir = ""
+	onlineBuildCmd = ""
 
 	SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("🛑 Tunnel stopped.\n📁 Workdir: %s\n🔌 Port: %s\n🛠️ Command: %s", workdir, port, cmd))
 }
@@ -1397,12 +1397,12 @@ func handleServeCommand(ctx context.Context, message *models.Message) {
 		return
 	}
 
-	ngrokMutex.Lock()
-	defer ngrokMutex.Unlock()
+	onlineMutex.Lock()
+	defer onlineMutex.Unlock()
 
 	// Check if tunnel is already running
-	if ngrokProcess != nil {
-		SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("❌ Tunnel is already running!\n📁 Workdir: %s\n🔌 Port: %s\n🛠️ Command: %s\n\nUse /stop to stop it first.", ngrokWorkDir, ngrokPort, ngrokBuildCmd))
+	if onlineProcess != nil {
+		SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("❌ Tunnel is already running!\n📁 Workdir: %s\n🔌 Port: %s\n🛠️ Command: %s\n\nUse /stop to stop it first.", onlineWorkDir, onlinePort, onlineBuildCmd))
 		return
 	}
 
@@ -1443,19 +1443,19 @@ func handleServeCommand(ctx context.Context, message *models.Message) {
 
 	// Create pipes to capture online tool output
 	// Build online command with optional server URL
-	var ngrokCmd *exec.Cmd
+	var onlineCmd *exec.Cmd
 	if OnlineServerURL != "" {
-		ngrokCmd = exec.Command("online", "expose", port, "--server", OnlineServerURL)
+		onlineCmd = exec.Command("online", "expose", port, "--server", OnlineServerURL)
 	} else {
-		ngrokCmd = exec.Command("online", "expose", port)
+		onlineCmd = exec.Command("online", "expose", port)
 	}
-	ngrokStdout, err := ngrokCmd.StdoutPipe()
+	onlineStdout, err := onlineCmd.StdoutPipe()
 	if err != nil {
 		buildCmd.Process.Kill()
 		SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("❌ Failed to create stdout pipe: %v", err))
 		return
 	}
-	ngrokStderr, err := ngrokCmd.StderrPipe()
+	onlineStderr, err := onlineCmd.StderrPipe()
 	if err != nil {
 		buildCmd.Process.Kill()
 		SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("❌ Failed to create stderr pipe: %v", err))
@@ -1463,10 +1463,10 @@ func handleServeCommand(ctx context.Context, message *models.Message) {
 	}
 
 	// Capture stderr for error reporting
-	var ngrokErrorBuffer strings.Builder
-	ngrokStderrTee := io.TeeReader(ngrokStderr, &ngrokErrorBuffer)
+	var onlineErrorBuffer strings.Builder
+	onlineStderrTee := io.TeeReader(onlineStderr, &onlineErrorBuffer)
 
-	if err := ngrokCmd.Start(); err != nil {
+	if err := onlineCmd.Start(); err != nil {
 		buildCmd.Process.Kill()
 		// Try to run the command directly to get error output
 		var testCmd *exec.Cmd
@@ -1485,14 +1485,14 @@ func handleServeCommand(ctx context.Context, message *models.Message) {
 	}
 
 	// Store the process info
-	ngrokProcess = ngrokCmd.Process
+	onlineProcess = onlineCmd.Process
 	buildProcess = buildCmd.Process
-	ngrokPort = port
-	ngrokWorkDir = absWorkdir
-	ngrokBuildCmd = buildCmdStr
+	onlinePort = port
+	onlineWorkDir = absWorkdir
+	onlineBuildCmd = buildCmdStr
 
-	// Send initial message indicating ngrok is starting
-	SendMessage(ctx, b, message.Chat.ID, "🔄 Starting ngrok tunnel...\n\n📋 *Ngrok output:*")
+	// Send initial message indicating online tunnel is starting
+	SendMessage(ctx, b, message.Chat.ID, "🔄 Starting online tunnel...\n\n📋 *Online tunnel output:*")
 
 	// Channel to collect output
 	outputChan := make(chan string, 100)
@@ -1508,8 +1508,8 @@ func handleServeCommand(ctx context.Context, message *models.Message) {
 	}
 
 	// Start goroutines to read stdout and stderr
-	go readOutput(ngrokStdout, "")
-	go readOutput(ngrokStderrTee, "❗ ")
+	go readOutput(onlineStdout, "")
+	go readOutput(onlineStderrTee, "❗ ")
 
 	// Goroutine to collect and send output
 	go func() {
@@ -1575,21 +1575,21 @@ func handleServeCommand(ctx context.Context, message *models.Message) {
 	go func() {
 		// Wait for either process to exit
 		buildCmd.Wait()
-		ngrokCmd.Wait()
+		onlineCmd.Wait()
 
-		ngrokMutex.Lock()
-		if ngrokProcess != nil {
+		onlineMutex.Lock()
+		if onlineProcess != nil {
 			// Clean up
-			ngrokProcess = nil
+			onlineProcess = nil
 			buildProcess = nil
-			ngrokPort = ""
-			ngrokWorkDir = ""
-			ngrokBuildCmd = ""
-			ngrokMutex.Unlock()
+			onlinePort = ""
+			onlineWorkDir = ""
+			onlineBuildCmd = ""
+			onlineMutex.Unlock()
 
 			SendMessage(ctx, b, message.Chat.ID, "⚠️ Static file server and online tunnel have stopped.")
 		} else {
-			ngrokMutex.Unlock()
+			onlineMutex.Unlock()
 		}
 	}()
 }
