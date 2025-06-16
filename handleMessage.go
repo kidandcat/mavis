@@ -1055,26 +1055,26 @@ You are tasked with reviewing a pull request and posting your review as a commen
 
 3. Write a comprehensive PR review with your thoughts and analysis
 
-4. Post your review as a comment on the PR:
-   - Use: gh pr comment %s --body "Your review here"
+4. Post your review using the gh pr review command:
+   - If APPROVING: Use: gh pr review %s --approve --body "Your full review here"
+   - If REQUESTING CHANGES: Use: gh pr review %s --request-changes --body "Your full review here"
+   - If JUST COMMENTING: Use: gh pr review %s --comment --body "Your full review here"
    - Structure your review as follows:
      * Start with a brief summary
      * List any bugs or issues found (if any)
      * Code improvement suggestions (if any)
      * Final verdict: Approve, Request Changes, or Needs Discussion
 
-5. If your final decision is to APPROVE the PR:
-   - After posting the comment, approve the PR using: gh pr review %s --approve --body "Approved"
-   - Only approve if there are no major issues or bugs
+5. Important: Use ONLY ONE gh pr review command - do not post multiple comments or reviews
 
 Remember:
 - Be thorough but concise in your review
 - Point out specific line numbers or files when mentioning issues
-- Post your review thoughts as a comment first
-- Only approve if the code is ready to merge
-- If you find issues, don't approve - just post the review comment
+- Use ONLY ONE gh pr review command - choose the appropriate action (approve, request-changes, or comment)
+- Only approve if the code is ready to merge with no major issues
+- The review body should contain your complete review, not just "Approved"
 
-PR URL: %s`, prURL, prURL, prURL, prURL, prURL, prURL, prURL)
+PR URL: %s`, prURL, prURL, prURL, prURL, prURL, prURL, prURL, prURL, prURL)
 
 	SendMessage(ctx, b, chatID, fmt.Sprintf("🚀 Launching PR review agent...\n📁 Repository: %s\n🔗 PR: %s", absDir, prURL))
 
