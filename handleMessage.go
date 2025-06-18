@@ -4,10 +4,10 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -39,17 +39,17 @@ func handleMessage(ctx context.Context, message *models.Message) {
 				handleStatusCommand(ctx, message)
 				return
 			case "/stop":
-				// Check if it's the online stop command or agent stop command
+				// Check if it's the LAN stop command or agent stop command
 				if len(parts) == 1 {
-					// No arguments, it's online stop
-					handleOnlineStopCommand(ctx, message)
+					// No arguments, it's LAN stop
+					handleStopLANCommand(ctx, message)
 				} else {
 					// Has arguments, it's agent stop
 					handleStopCommand(ctx, message)
 				}
 				return
 			case "/start":
-				handleOnlineStartCommand(ctx, message)
+				handleStartCommand(ctx, message)
 				return
 			case "/new_branch":
 				handleGitCodeCommand(ctx, message)
@@ -666,10 +666,10 @@ Task: %s`, branch, branch, branch, branch, branch, task, branch, branch, task)
 
 func handleHelpCommand(ctx context.Context, message *models.Message) {
 	helpText := "📚 *Available Commands*\n\n" +
-		"*Online Tunnel Commands:*\n" +
-		"• `/start <workdir> <port> <command...>` - Start online tunnel with build command\n" +
-		"• `/serve <directory> [port]` - Serve static files with online tunnel (default port: 8080)\n" +
-		"• `/stop` - Stop tunnel and build process\n\n" +
+		"*LAN Server Commands:*\n" +
+		"• `/start <workdir> <port> <command...>` - Start LAN server with build command\n" +
+		"• `/serve <directory> [port]` - Serve static files on LAN (default port: 8080)\n" +
+		"• `/stop` - Stop LAN server\n\n" +
 		"*Code Agent Commands:*\n" +
 		"• `/code <directory> <task>` - Launch a new code agent\n" +
 		"• `/new_branch <directory> <task>` - Launch git-aware agent (creates branch & pushes)\n" +
@@ -704,10 +704,10 @@ func handleHelpCommand(ctx context.Context, message *models.Message) {
 	helpText += "*Other Commands:*\n" +
 		"• `/help` - Show this help message\n\n" +
 		"*Examples:*\n" +
-		"• `/start ~/reservas_rb 3000 rails s` - Start Rails app with tunnel\n" +
+		"• `/start ~/reservas_rb 3000 rails s` - Start Rails app on LAN\n" +
 		"• `/serve ~/public_html` - Serve static files on port 8080\n" +
 		"• `/serve ~/docs 3000` - Serve static files on port 3000\n" +
-		"• `/stop` - Stop tunnel\n" +
+		"• `/stop` - Stop LAN server\n" +
 		"• `/code /home/project \"fix the bug in main.py\"`\n" +
 		"• `/ps`\n" +
 		"• `/status abc123`\n" +
@@ -1121,7 +1121,7 @@ PR URL: %s`, prURL, prURL, prURL, prURL, prURL, prURL)
 		agentID, prURL, directory, agentID))
 }
 
-func handleOnlineStartCommand(ctx context.Context, message *models.Message) {
+func handleStartCommand(ctx context.Context, message *models.Message) {
 	parts := strings.Fields(message.Text)
 	if len(parts) < 4 {
 		SendMessage(ctx, b, message.Chat.ID, "❌ Please provide workdir, port, and build command.\nUsage: /start <workdir> <port> <build command...>\n\nExample: /start ~/reservas_rb 3000 rails s")
@@ -1156,16 +1156,16 @@ func handleOnlineStartCommand(ctx context.Context, message *models.Message) {
 		return
 	}
 
-	onlineMutex.Lock()
-	defer onlineMutex.Unlock()
+	lanServerMutex.Lock()
+	defer lanServerMutex.Unlock()
 
-	// Check if tunnel is already running
-	if onlineProcess != nil {
-		SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("❌ Tunnel is already running!\n📁 Workdir: %s\n🔌 Port: %s\n🛠️ Command: %s\n\nUse /stop to stop it first.", onlineWorkDir, onlinePort, onlineBuildCmd))
+	// Check if server is already running
+	if lanServerProcess != nil {
+		SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("❌ LAN server is already running!\n📁 Workdir: %s\n🔌 Port: %s\n🛠️ Command: %s\n\nUse /stop to stop it first.", lanServerWorkDir, lanServerPort, lanServerCmd))
 		return
 	}
 
-	SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("🚀 Starting online tunnel...\n📁 Workdir: %s\n🔌 Port: %s\n🛠️ Build command: %s", absWorkdir, port, buildCmdStr))
+	SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("🚀 Starting LAN server...\n📁 Workdir: %s\n🔌 Port: %s\n🛠️ Build command: %s", absWorkdir, port, buildCmdStr))
 
 	// Start the build command in the workdir
 	buildCmd := exec.Command("sh", "-c", buildCmdStr)
@@ -1197,195 +1197,92 @@ func handleOnlineStartCommand(ctx context.Context, message *models.Message) {
 		return
 	}
 
-	// Create pipes to capture online tool output
-	// Build online command with optional server URL
-	var onlineCmd *exec.Cmd
-	if OnlineServerURL != "" {
-		onlineCmd = exec.Command("online", "expose", port, "--server", OnlineServerURL)
-	} else {
-		onlineCmd = exec.Command("online", "expose", port)
-	}
-	onlineStdout, err := onlineCmd.StdoutPipe()
-	if err != nil {
-		buildCmd.Process.Kill()
-		SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("❌ Failed to create stdout pipe: %v", err))
-		return
-	}
-	onlineStderr, err := onlineCmd.StderrPipe()
-	if err != nil {
-		buildCmd.Process.Kill()
-		SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("❌ Failed to create stderr pipe: %v", err))
-		return
-	}
-
-	// Capture stderr for error reporting
-	var onlineErrorBuffer strings.Builder
-	onlineStderrTee := io.TeeReader(onlineStderr, &onlineErrorBuffer)
-
-	if err := onlineCmd.Start(); err != nil {
-		buildCmd.Process.Kill()
-		// Try to run the command directly to get error output
-		var testCmd *exec.Cmd
-		if OnlineServerURL != "" {
-			testCmd = exec.Command("online", "expose", port, "--server", OnlineServerURL)
-		} else {
-			testCmd = exec.Command("online", "expose", port)
-		}
-		testOutput, _ := testCmd.CombinedOutput()
-		if len(testOutput) > 0 {
-			SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("❌ Failed to start online tunnel: %v\n\n📋 *Output:*\n```\n%s\n```\n\n💡 Make sure the online tool is installed: https://github.com/kidandcat/online", err, string(testOutput)))
-		} else {
-			SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("❌ Failed to start online tunnel: %v\n\n💡 Make sure the online tool is installed: https://github.com/kidandcat/online", err))
-		}
-		return
-	}
-
 	// Store the process info
-	onlineProcess = onlineCmd.Process
-	buildProcess = buildCmd.Process
-	onlinePort = port
-	onlineWorkDir = absWorkdir
-	onlineBuildCmd = buildCmdStr
+	lanServerProcess = buildCmd.Process
+	lanServerPort = port
+	lanServerWorkDir = absWorkdir
+	lanServerCmd = buildCmdStr
 
-	// Send initial message indicating online tunnel is starting
-	SendMessage(ctx, b, message.Chat.ID, "🔄 Starting online tunnel...\n\n📋 *Online tunnel output:*")
-
-	// Channel to collect output
-	outputChan := make(chan string, 100)
-	doneChan := make(chan bool)
-
-	// Function to read from a reader and send to channel
-	readOutput := func(reader io.Reader, prefix string) {
-		scanner := bufio.NewScanner(reader)
-		for scanner.Scan() {
-			line := scanner.Text()
-			outputChan <- prefix + line
+	// Get local IP addresses
+	var ipAddresses []string
+	addrs, err := net.InterfaceAddrs()
+	if err == nil {
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+				if ipnet.IP.To4() != nil {
+					ipAddresses = append(ipAddresses, ipnet.IP.String())
+				}
+			}
 		}
 	}
 
-	// Start goroutines to read stdout and stderr
-	go readOutput(onlineStdout, "")
-	go readOutput(onlineStderrTee, "❗ ")
+	// Build access URLs
+	var accessURLs strings.Builder
+	accessURLs.WriteString("\n🌐 *Access URLs:*\n")
+	accessURLs.WriteString(fmt.Sprintf("  🏠 Local: http://localhost:%s\n", port))
+	for _, ip := range ipAddresses {
+		accessURLs.WriteString(fmt.Sprintf("  📡 LAN: http://%s:%s\n", ip, port))
+	}
+	accessURLs.WriteString(fmt.Sprintf("  🎯 mDNS: http://%s:%s\n", lanDomainName, port))
 
-	// Goroutine to collect and send output
-	go func() {
-		var outputBuffer strings.Builder
-		lastSendTime := time.Now()
-		ticker := time.NewTicker(500 * time.Millisecond)
-		defer ticker.Stop()
-
-		sendOutput := func() {
-			if outputBuffer.Len() > 0 {
-				output := outputBuffer.String()
-				outputBuffer.Reset()
-				// Truncate if too long
-				if len(output) > 3500 {
-					output = output[:3500] + "\n...(truncated)"
-				}
-				SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("```\n%s\n```", output))
-			}
-		}
-
-		for {
-			select {
-			case line := <-outputChan:
-				outputBuffer.WriteString(line + "\n")
-
-				// Send immediately if buffer is getting large
-				if outputBuffer.Len() > 3000 {
-					sendOutput()
-					lastSendTime = time.Now()
-				}
-
-			case <-ticker.C:
-				// Send buffered output if any exists
-				if outputBuffer.Len() > 0 && time.Since(lastSendTime) > 500*time.Millisecond {
-					sendOutput()
-					lastSendTime = time.Now()
-				}
-
-			case <-doneChan:
-				// Send any remaining output
-				sendOutput()
-				return
-			}
-		}
-	}()
-
-	// Wait for 2 seconds after the last output
-	time.Sleep(2 * time.Second)
-
-	// Close the done channel after a timeout to stop the output goroutine
-	go func() {
-		time.Sleep(5 * time.Second)
-		close(doneChan)
-	}()
-
-	// The online tool should output the URL directly in its output
-	// which will be captured and displayed to the user
-	successMsg := fmt.Sprintf("\n✅ Online tunnel started successfully!\n📁 Workdir: %s\n🔌 Local port: %s\n🛠️ Build command: %s\n\n💡 The public URL will be displayed in the tunnel output above.", absWorkdir, port, buildCmdStr)
+	// Success message
+	successMsg := fmt.Sprintf("✅ LAN server started successfully!\n📁 Workdir: %s\n🔌 Port: %s\n🛠️ Build command: %s\n%s\n💡 *Note:* The .local domain requires mDNS/Bonjour support on client devices.", absWorkdir, port, buildCmdStr, accessURLs.String())
 
 	SendMessage(ctx, b, message.Chat.ID, successMsg)
 
-	// Monitor the processes in a goroutine
+	// Monitor the process in a goroutine
 	go func() {
-		// Wait for either process to exit
+		// Wait for process to exit
 		buildCmd.Wait()
-		onlineCmd.Wait()
 
-		onlineMutex.Lock()
-		if onlineProcess != nil {
+		lanServerMutex.Lock()
+		if lanServerProcess != nil {
 			// Clean up
-			onlineProcess = nil
-			buildProcess = nil
-			onlinePort = ""
-			onlineWorkDir = ""
-			onlineBuildCmd = ""
-			onlineMutex.Unlock()
+			lanServerProcess = nil
+			lanServerPort = ""
+			lanServerWorkDir = ""
+			lanServerCmd = ""
+			lanServerMutex.Unlock()
 
-			SendMessage(ctx, b, message.Chat.ID, "⚠️ Online tunnel and build process have stopped.")
+			SendMessage(ctx, b, message.Chat.ID, "⚠️ LAN server has stopped.")
 		} else {
-			onlineMutex.Unlock()
+			lanServerMutex.Unlock()
 		}
 	}()
 }
 
-func handleOnlineStopCommand(ctx context.Context, message *models.Message) {
-	onlineMutex.Lock()
-	defer onlineMutex.Unlock()
+func handleStopLANCommand(ctx context.Context, message *models.Message) {
+	lanServerMutex.Lock()
+	defer lanServerMutex.Unlock()
 
-	if onlineProcess == nil {
-		SendMessage(ctx, b, message.Chat.ID, "❌ No tunnel is currently running.")
+	if lanServerProcess == nil {
+		SendMessage(ctx, b, message.Chat.ID, "❌ No LAN server is currently running.")
 		return
 	}
 
-	// Kill the tunnel process
-	if err := onlineProcess.Kill(); err != nil {
-		SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("❌ Failed to stop tunnel: %v", err))
+	// Kill the server process
+	if err := lanServerProcess.Kill(); err != nil {
+		SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("❌ Failed to stop LAN server: %v", err))
 		return
-	}
-
-	// Kill the build process
-	if buildProcess != nil {
-		buildProcess.Kill()
 	}
 
 	// Also try to kill any process using the port
-	killPortCmd := exec.Command("sh", "-c", fmt.Sprintf("lsof -ti:%s | xargs kill -9 2>/dev/null || true", onlinePort))
-	killPortCmd.Run()
+	if lanServerPort != "" {
+		killPortCmd := exec.Command("sh", "-c", fmt.Sprintf("lsof -ti:%s | xargs kill -9 2>/dev/null || true", lanServerPort))
+		killPortCmd.Run()
+	}
 
-	workdir := onlineWorkDir
-	port := onlinePort
-	cmd := onlineBuildCmd
+	workdir := lanServerWorkDir
+	port := lanServerPort
+	cmd := lanServerCmd
 
 	// Clean up
-	onlineProcess = nil
-	buildProcess = nil
-	onlinePort = ""
-	onlineWorkDir = ""
-	onlineBuildCmd = ""
+	lanServerProcess = nil
+	lanServerPort = ""
+	lanServerWorkDir = ""
+	lanServerCmd = ""
 
-	SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("🛑 Tunnel stopped.\n📁 Workdir: %s\n🔌 Port: %s\n🛠️ Command: %s", workdir, port, cmd))
+	SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("🛑 LAN server stopped.\n📁 Workdir: %s\n🔌 Port: %s\n🛠️ Command: %s", workdir, port, cmd))
 }
 
 func handleServeCommand(ctx context.Context, message *models.Message) {
@@ -1426,19 +1323,20 @@ func handleServeCommand(ctx context.Context, message *models.Message) {
 		return
 	}
 
-	onlineMutex.Lock()
-	defer onlineMutex.Unlock()
+	lanServerMutex.Lock()
+	defer lanServerMutex.Unlock()
 
-	// Check if tunnel is already running
-	if onlineProcess != nil {
-		SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("❌ Tunnel is already running!\n📁 Workdir: %s\n🔌 Port: %s\n🛠️ Command: %s\n\nUse /stop to stop it first.", onlineWorkDir, onlinePort, onlineBuildCmd))
+	// Check if server is already running
+	if lanServerProcess != nil {
+		SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("❌ LAN server is already running!\n📁 Workdir: %s\n🔌 Port: %s\n🛠️ Command: %s\n\nUse /stop to stop it first.", lanServerWorkDir, lanServerPort, lanServerCmd))
 		return
 	}
 
 	// Build command: Use Python's http.server module for static file serving
-	buildCmdStr := fmt.Sprintf("python3 -m http.server %s", port)
+	// Bind to 0.0.0.0 to listen on all network interfaces
+	buildCmdStr := fmt.Sprintf("python3 -m http.server %s --bind 0.0.0.0", port)
 
-	SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("🚀 Starting static file server...\n📁 Directory: %s\n🔌 Port: %s\n🛠️ Server: Python http.server", absWorkdir, port))
+	SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("🚀 Starting LAN file server...\n📁 Directory: %s\n🔌 Port: %s\n🛠️ Server: Python http.server", absWorkdir, port))
 
 	// Start the static file server in the workdir
 	buildCmd := exec.Command("sh", "-c", buildCmdStr)
@@ -1453,9 +1351,9 @@ func handleServeCommand(ctx context.Context, message *models.Message) {
 		// Try to get more detailed error output
 		output := buildOutput.String()
 		if output != "" {
-			SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("❌ Failed to start static file server: %v\n\n📋 *Output:*\n```\n%s\n```", err, output))
+			SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("❌ Failed to start LAN file server: %v\n\n📋 *Output:*\n```\n%s\n```", err, output))
 		} else {
-			SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("❌ Failed to start static file server: %v", err))
+			SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("❌ Failed to start LAN file server: %v", err))
 		}
 		return
 	}
@@ -1466,159 +1364,60 @@ func handleServeCommand(ctx context.Context, message *models.Message) {
 	// Check if build process already exited (failed to start properly)
 	if buildCmd.ProcessState != nil {
 		output := buildOutput.String()
-		SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("❌ Static file server failed to start properly.\n\n📋 *Output:*\n```\n%s\n```", output))
-		return
-	}
-
-	// Create pipes to capture online tool output
-	// Build online command with optional server URL
-	var onlineCmd *exec.Cmd
-	if OnlineServerURL != "" {
-		onlineCmd = exec.Command("online", "expose", port, "--server", OnlineServerURL)
-	} else {
-		onlineCmd = exec.Command("online", "expose", port)
-	}
-	onlineStdout, err := onlineCmd.StdoutPipe()
-	if err != nil {
-		buildCmd.Process.Kill()
-		SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("❌ Failed to create stdout pipe: %v", err))
-		return
-	}
-	onlineStderr, err := onlineCmd.StderrPipe()
-	if err != nil {
-		buildCmd.Process.Kill()
-		SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("❌ Failed to create stderr pipe: %v", err))
-		return
-	}
-
-	// Capture stderr for error reporting
-	var onlineErrorBuffer strings.Builder
-	onlineStderrTee := io.TeeReader(onlineStderr, &onlineErrorBuffer)
-
-	if err := onlineCmd.Start(); err != nil {
-		buildCmd.Process.Kill()
-		// Try to run the command directly to get error output
-		var testCmd *exec.Cmd
-		if OnlineServerURL != "" {
-			testCmd = exec.Command("online", "expose", port, "--server", OnlineServerURL)
-		} else {
-			testCmd = exec.Command("online", "expose", port)
-		}
-		testOutput, _ := testCmd.CombinedOutput()
-		if len(testOutput) > 0 {
-			SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("❌ Failed to start online tunnel: %v\n\n📋 *Output:*\n```\n%s\n```\n\n💡 Make sure the online tool is installed: https://github.com/kidandcat/online", err, string(testOutput)))
-		} else {
-			SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("❌ Failed to start online tunnel: %v\n\n💡 Make sure the online tool is installed: https://github.com/kidandcat/online", err))
-		}
+		SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("❌ LAN file server failed to start properly.\n\n📋 *Output:*\n```\n%s\n```", output))
 		return
 	}
 
 	// Store the process info
-	onlineProcess = onlineCmd.Process
-	buildProcess = buildCmd.Process
-	onlinePort = port
-	onlineWorkDir = absWorkdir
-	onlineBuildCmd = buildCmdStr
+	lanServerProcess = buildCmd.Process
+	lanServerPort = port
+	lanServerWorkDir = absWorkdir
+	lanServerCmd = buildCmdStr
 
-	// Send initial message indicating online tunnel is starting
-	SendMessage(ctx, b, message.Chat.ID, "🔄 Starting online tunnel...\n\n📋 *Online tunnel output:*")
-
-	// Channel to collect output
-	outputChan := make(chan string, 100)
-	doneChan := make(chan bool)
-
-	// Function to read from a reader and send to channel
-	readOutput := func(reader io.Reader, prefix string) {
-		scanner := bufio.NewScanner(reader)
-		for scanner.Scan() {
-			line := scanner.Text()
-			outputChan <- prefix + line
+	// Get local IP addresses
+	var ipAddresses []string
+	addrs, err := net.InterfaceAddrs()
+	if err == nil {
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+				if ipnet.IP.To4() != nil {
+					ipAddresses = append(ipAddresses, ipnet.IP.String())
+				}
+			}
 		}
 	}
 
-	// Start goroutines to read stdout and stderr
-	go readOutput(onlineStdout, "")
-	go readOutput(onlineStderrTee, "❗ ")
+	// Build access URLs
+	var accessURLs strings.Builder
+	accessURLs.WriteString("\n🌐 *Access URLs:*\n")
+	accessURLs.WriteString(fmt.Sprintf("  🏠 Local: http://localhost:%s\n", port))
+	for _, ip := range ipAddresses {
+		accessURLs.WriteString(fmt.Sprintf("  📡 LAN: http://%s:%s\n", ip, port))
+	}
+	accessURLs.WriteString(fmt.Sprintf("  🎯 mDNS: http://%s:%s\n", lanDomainName, port))
 
-	// Goroutine to collect and send output
-	go func() {
-		var outputBuffer strings.Builder
-		lastSendTime := time.Now()
-		ticker := time.NewTicker(500 * time.Millisecond)
-		defer ticker.Stop()
-
-		sendOutput := func() {
-			if outputBuffer.Len() > 0 {
-				output := outputBuffer.String()
-				outputBuffer.Reset()
-				// Truncate if too long
-				if len(output) > 3500 {
-					output = output[:3500] + "\n...(truncated)"
-				}
-				SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("```\n%s\n```", output))
-			}
-		}
-
-		for {
-			select {
-			case line := <-outputChan:
-				outputBuffer.WriteString(line + "\n")
-
-				// Send immediately if buffer is getting large
-				if outputBuffer.Len() > 3000 {
-					sendOutput()
-					lastSendTime = time.Now()
-				}
-
-			case <-ticker.C:
-				// Send buffered output if any exists
-				if outputBuffer.Len() > 0 && time.Since(lastSendTime) > 500*time.Millisecond {
-					sendOutput()
-					lastSendTime = time.Now()
-				}
-
-			case <-doneChan:
-				// Send any remaining output
-				sendOutput()
-				return
-			}
-		}
-	}()
-
-	// Wait for 2 seconds after the last output
-	time.Sleep(2 * time.Second)
-
-	// Close the done channel after a timeout to stop the output goroutine
-	go func() {
-		time.Sleep(5 * time.Second)
-		close(doneChan)
-	}()
-
-	// The online tool should output the URL directly in its output
-	// which will be captured and displayed to the user
-	successMsg := fmt.Sprintf("\n✅ Static file server started successfully!\n📁 Serving: %s\n🔌 Local port: %s\n📄 Server: Python http.server\n\n💡 The public URL will be displayed in the tunnel output above.", absWorkdir, port)
+	// Success message
+	successMsg := fmt.Sprintf("✅ LAN file server started successfully!\n📁 Serving: %s\n🔌 Port: %s\n📄 Server: Python http.server\n%s\n💡 *Note:* The .local domain requires mDNS/Bonjour support on client devices.", absWorkdir, port, accessURLs.String())
 
 	SendMessage(ctx, b, message.Chat.ID, successMsg)
 
-	// Monitor the processes in a goroutine
+	// Monitor the process in a goroutine
 	go func() {
-		// Wait for either process to exit
+		// Wait for process to exit
 		buildCmd.Wait()
-		onlineCmd.Wait()
 
-		onlineMutex.Lock()
-		if onlineProcess != nil {
+		lanServerMutex.Lock()
+		if lanServerProcess != nil {
 			// Clean up
-			onlineProcess = nil
-			buildProcess = nil
-			onlinePort = ""
-			onlineWorkDir = ""
-			onlineBuildCmd = ""
-			onlineMutex.Unlock()
+			lanServerProcess = nil
+			lanServerPort = ""
+			lanServerWorkDir = ""
+			lanServerCmd = ""
+			lanServerMutex.Unlock()
 
-			SendMessage(ctx, b, message.Chat.ID, "⚠️ Static file server and online tunnel have stopped.")
+			SendMessage(ctx, b, message.Chat.ID, "⚠️ LAN file server has stopped.")
 		} else {
-			onlineMutex.Unlock()
+			lanServerMutex.Unlock()
 		}
 	}()
 }

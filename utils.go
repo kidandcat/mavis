@@ -242,3 +242,15 @@ func SendFile(ctx context.Context, b *bot.Bot, chatID int64, filePath string, ca
 	return nil
 }
 
+// GetmDNSInstructions returns instructions for setting up mDNS
+func GetmDNSInstructions() string {
+	return `To use the .local domain, ensure mDNS/Bonjour is configured:
+
+**macOS**: Built-in support, no configuration needed
+**Linux**: Install avahi-daemon: sudo apt-get install avahi-daemon
+**Windows**: Install Bonjour Print Services from Apple
+
+For manual configuration, add to /etc/hosts:
+<your-server-ip> mavis.local`
+}
+

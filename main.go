@@ -26,17 +26,16 @@ var (
 	AdminUserID     int64
 	b               *bot.Bot
 	agentManager    *codeagent.Manager
-	OnlineServerURL string
 )
 
-// Tunnel process tracking
+// LAN server tracking
 var (
-	onlineProcess  *os.Process
-	buildProcess   *os.Process
-	onlinePort     string
-	onlineWorkDir  string
-	onlineBuildCmd string
-	onlineMutex    sync.Mutex
+	lanServerProcess *os.Process
+	lanServerPort    string
+	lanServerWorkDir string
+	lanServerCmd     string
+	lanServerMutex   sync.Mutex
+	lanDomainName    = "mavis.local"
 )
 
 // Image tracking for users
@@ -71,11 +70,6 @@ func main() {
 		log.Fatal("ADMIN_USER_ID must be a valid integer:", err)
 	}
 
-	// Load optional online server URL
-	OnlineServerURL = os.Getenv("ONLINE_SERVER_URL")
-	if OnlineServerURL == "" {
-		OnlineServerURL = "" // Use default server
-	}
 
 	// Create data directory if it doesn't exist
 	if err := os.MkdirAll("data", 0755); err != nil {

@@ -1,6 +1,6 @@
 # Mavis - AI-Powered Development Assistant for Telegram
 
-Mavis is a powerful Telegram bot that brings Claude AI directly to your development workflow. Launch autonomous AI agents to write code, manage git operations, review pull requests, and expose local services to the internet - all through simple Telegram commands.
+Mavis is a powerful Telegram bot that brings Claude AI directly to your development workflow. Launch autonomous AI agents to write code, manage git operations, review pull requests, and serve local projects on your LAN network - all through simple Telegram commands.
 
 ## 🚀 Features
 
@@ -19,11 +19,11 @@ Mavis is a powerful Telegram bot that brings Claude AI directly to your developm
 - **Pending Changes Review**: Review uncommitted changes before making commits
 - **Visual Diffs**: See actual git diffs for modified files with syntax highlighting
 
-### 🌐 Web Development & Deployment
-- **Instant Public URLs**: Expose local development servers to the internet using [online](https://github.com/kidandcat/online) tunneling
-- **Static File Hosting**: Serve and share static websites with public URLs instantly
-- **Build Command Integration**: Run development servers with automatic public exposure
-- **Port Management**: Handle multiple services on different ports simultaneously
+### 🌐 Web Development & LAN Serving
+- **LAN Access**: Serve local development servers on your network with .local domain support
+- **Static File Hosting**: Host static websites accessible from any device on your LAN
+- **Build Command Integration**: Run development servers accessible via multiple URLs
+- **mDNS Support**: Access services using mavis.local domain (requires Bonjour/mDNS)
 
 ### 📁 Remote File Operations
 - **Direct File Downloads**: Retrieve project files up to 50MB directly in Telegram
@@ -43,7 +43,6 @@ Mavis is a powerful Telegram bot that brings Claude AI directly to your developm
 - [Claude CLI](https://github.com/anthropics/claude-code) installed and configured
 - Telegram Bot Token (from [@BotFather](https://t.me/botfather))
 - GitHub CLI (`gh`) for PR review features (optional)
-- [Online](https://github.com/kidandcat/online) tunneling tool for web exposure (optional)
 - Python 3 for static file serving (optional)
 
 ## 🛠️ Installation
@@ -64,8 +63,6 @@ go mod download
 cat > .env << EOF
 TELEGRAM_BOT_TOKEN=your_bot_token_here
 ADMIN_USER_ID=your_telegram_user_id
-# Optional: Custom online server URL
-# ONLINE_SERVER_URL=https://your-server.com
 EOF
 ```
 
@@ -102,10 +99,10 @@ Or use the continuous run script:
 - `/review <directory> <pr_url>` - Get AI-powered PR review sent to Telegram
 - `/pr <directory> <pr_url>` - Review PR, post comment, and approve if ready
 
-### 🌐 Web Development Commands
-- `/start <workdir> <port> <build_command>` - Start development server with public URL
-- `/serve <directory> [port]` - Serve static files with public URL (default: 8080)
-- `/stop` - Stop active tunnel and server processes
+### 🌐 LAN Server Commands
+- `/start <workdir> <port> <build_command>` - Start development server on LAN
+- `/serve <directory> [port]` - Serve static files on LAN (default: 8080)
+- `/stop` - Stop active LAN server
 
 ### 📁 File & System Commands
 - `/download <file_path>` - Download files directly to Telegram (max 50MB)
@@ -134,10 +131,13 @@ Or use the continuous run script:
 /new_branch ~/projects/api "Add GraphQL endpoint for user profile queries with proper authentication"
 ```
 
-### Expose your local development server:
+### Start your local development server on LAN:
 ```
 /start ~/projects/frontend 3000 "npm run dev"
-# Returns: Public URL https://abc123.online.io accessible from anywhere
+# Accessible at:
+# - http://localhost:3000
+# - http://192.168.1.100:3000 (your LAN IP)
+# - http://mavis.local:3000 (mDNS)
 ```
 
 ### Get AI review of pending changes:
@@ -158,10 +158,12 @@ Or use the continuous run script:
 # Execute commands and see output directly in Telegram
 ```
 
-### Serve static documentation site:
+### Serve static documentation site on LAN:
 ```
 /serve ~/projects/docs 8080
-# Instantly accessible at https://xyz789.online.io
+# Accessible from any device on your network at:
+# - http://192.168.1.100:8080
+# - http://mavis.local:8080
 ```
 
 ## 🔧 Configuration
@@ -169,7 +171,6 @@ Or use the continuous run script:
 ### Environment Variables
 - `TELEGRAM_BOT_TOKEN` - Your Telegram bot token from [@BotFather](https://t.me/botfather) (required)
 - `ADMIN_USER_ID` - Your Telegram user ID for admin access (required)
-- `ONLINE_SERVER_URL` - Custom online tunnel server URL (optional)
 
 ### Getting Your Telegram User ID
 1. Start a chat with [@userinfobot](https://t.me/userinfobot)
@@ -196,7 +197,7 @@ Mavis is built with a modular architecture:
 - **Git Integration**: Provides git workflow automation
 - **File System**: Handles remote file operations
 - **Auth System**: Manages user authorization and security
-- **Web Tunneling**: Integrates with online tool for public URL exposure
+- **LAN Server**: Provides LAN-accessible servers with mDNS support
 
 ### Task Planning System
 Each AI agent creates a `CURRENT_PLAN.md` file to:
@@ -229,7 +230,6 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) for deta
 
 - Powered by [Claude AI](https://claude.ai) via [Claude CLI](https://github.com/anthropics/claude-code)
 - Telegram integration via [go-telegram](https://github.com/go-telegram/bot)
-- Online tunneling by [online](https://github.com/kidandcat/online)
 
 ## 🚀 Deployment
 
