@@ -31,6 +31,7 @@ var (
 // LAN server tracking
 var (
 	lanServerProcess *os.Process
+	lanHTTPServer    *http.Server
 	lanServerPort    string
 	lanServerWorkDir string
 	lanServerCmd     string

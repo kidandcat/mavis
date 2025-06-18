@@ -7,8 +7,10 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -252,5 +254,35 @@ func GetmDNSInstructions() string {
 
 For manual configuration, add to /etc/hosts:
 <your-server-ip> mavis.local`
+}
+
+// IsPortInUse checks if a port is already in use
+func IsPortInUse(port string) bool {
+	ln, err := net.Listen("tcp", ":"+port)
+	if err != nil {
+		// Port is in use or error occurred
+		return true
+	}
+	ln.Close()
+	return false
+}
+
+// FindAvailablePort finds an available port starting from the given port
+// It tries the original port first, then increments until it finds an available one
+func FindAvailablePort(startPort string) (string, error) {
+	port, err := strconv.Atoi(startPort)
+	if err != nil {
+		return "", fmt.Errorf("invalid port number: %s", startPort)
+	}
+
+	// Try up to 100 ports
+	for i := 0; i < 100; i++ {
+		currentPort := strconv.Itoa(port + i)
+		if !IsPortInUse(currentPort) {
+			return currentPort, nil
+		}
+	}
+
+	return "", fmt.Errorf("no available port found in range %d-%d", port, port+99)
 }
 
