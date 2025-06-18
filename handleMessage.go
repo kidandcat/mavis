@@ -96,6 +96,12 @@ func handleMessage(ctx context.Context, message *models.Message) {
 			case "/run":
 				handleRunCommand(ctx, message)
 				return
+			case "/images":
+				handleImagesCommand(ctx, message)
+				return
+			case "/clear_images":
+				handleClearImagesCommand(ctx, message)
+				return
 			}
 		}
 		return
@@ -124,7 +130,20 @@ func launchCodeAgentCommand(ctx context.Context, chatID int64, directory, task s
 		return
 	}
 
-	SendMessage(ctx, b, chatID, fmt.Sprintf("🚀 Launching code agent in %s...", absDir))
+	// Check for pending images
+	pendingImages := getPendingImages(chatID)
+	if len(pendingImages) > 0 {
+		// Append image information to the task
+		task += fmt.Sprintf("\n\nThe user has provided %d image(s) for this task:", len(pendingImages))
+		for i, imagePath := range pendingImages {
+			task += fmt.Sprintf("\n- Image %d: %s", i+1, imagePath)
+		}
+		task += "\n\nPlease analyze these images as part of the task. You can read them using the Read tool."
+
+		SendMessage(ctx, b, chatID, fmt.Sprintf("🚀 Launching code agent in %s...\n📸 Including %d pending image(s)", absDir, len(pendingImages)))
+	} else {
+		SendMessage(ctx, b, chatID, fmt.Sprintf("🚀 Launching code agent in %s...", absDir))
+	}
 
 	// Launch the agent
 	agentID, err := agentManager.LaunchAgent(ctx, absDir, task)
@@ -135,6 +154,11 @@ func launchCodeAgentCommand(ctx context.Context, chatID int64, directory, task s
 
 	// Register the agent for this user to receive notifications
 	RegisterAgentForUser(agentID, chatID)
+
+	// Clear pending images after using them
+	if len(pendingImages) > 0 {
+		clearPendingImages(chatID)
+	}
 
 	SendMessage(ctx, b, chatID, fmt.Sprintf("✅ Code agent launched!\n🆔 ID: `%s`\n📝 Task: %s\n📁 Directory: %s\n\nUse `/status %s` to check status.",
 		agentID, task, directory, agentID))
@@ -658,6 +682,10 @@ func handleHelpCommand(ctx context.Context, message *models.Message) {
 		"• `/ps` - List all active code agents\n" +
 		"• `/status <agent_id>` - Get details of a specific agent\n" +
 		"• `/stop <agent_id>` - Kill a running agent\n\n" +
+		"*Image Commands:*\n" +
+		"• Send images directly to include them in the next `/code` command\n" +
+		"• `/images` - Show pending images\n" +
+		"• `/clear_images` - Clear all pending images\n\n" +
 		"*File & Directory Commands:*\n" +
 		"• `/download <file_path>` - Download a file (up to 50MB)\n" +
 		"• `/ls [directory]` - List directory contents\n" +
@@ -1040,41 +1068,42 @@ func launchPRCommentAgent(ctx context.Context, chatID int64, directory, prURL st
 
 	// Prepare the PR review and comment prompt
 	prCommentPrompt := fmt.Sprintf(`IMPORTANT PR REVIEW AND COMMENT INSTRUCTIONS:
-You are tasked with reviewing a pull request and posting your review as a comment on the PR. Follow these steps carefully:
+You must review this pull request and post your review using the gh CLI.
 
-1. First, use the gh CLI to get information about the PR: %s
-   - Get PR details: gh pr view %s
-   - Get PR diff: gh pr diff %s
-   - Get PR checks status: gh pr checks %s
+1. Get PR information:
+   - gh pr view %s
+   - gh pr diff %s
+   - gh pr checks %s
 
-2. Analyze the code changes:
-   - Look for potential bugs, security issues, or performance problems
-   - Check if the implementation aligns with the requirements
+2. Analyze the code for issues ONLY:
+   - Bugs, security vulnerabilities, logic errors
+   - Breaking changes or regressions
+   - Missing critical tests for new functionality
    - Verify that the code follows project conventions and best practices
-   - Check for missing tests or documentation
+   - Check for missing tests
+   
+   DO NOT comment on:
+   - Code style preferences
+   - Minor improvements that work correctly
+   - Things that are already good
 
-3. Write a comprehensive PR review with your thoughts and analysis
+3. Post your review using EXACTLY ONE command:
+   
+   If NO ISSUES found:
+   gh pr review %s --approve --body "LGTM"
+   
+   If ISSUES found:
+   gh pr review %s --request-changes --body "- Issue 1: [specific problem at file:line]
+- Issue 2: [specific problem at file:line]"
 
-4. Post your review using the gh pr review command:
-   - If APPROVING: Use: gh pr review %s --approve --body "Your full review here"
-   - If REQUESTING CHANGES: Use: gh pr review %s --request-changes --body "Your full review here"
-   - If JUST COMMENTING: Use: gh pr review %s --comment --body "Your full review here"
-   - Structure your review as follows:
-     * Start with a brief summary
-     * List any bugs or issues found (if any)
-     * Code improvement suggestions (if any)
-     * Final verdict: Approve, Request Changes, or Needs Discussion
+CRITICAL RULES:
+- ONLY list actual problems that need fixing
+- NO summaries, NO strengths, NO general observations
+- If code works correctly, just approve with "LGTM"
+- Execute ONLY ONE gh pr review command
+- DO NOT run the command twice
 
-5. Important: Use ONLY ONE gh pr review command - do not post multiple comments or reviews
-
-Remember:
-- Be thorough but concise in your review
-- Point out specific line numbers or files when mentioning issues
-- Use ONLY ONE gh pr review command - choose the appropriate action (approve, request-changes, or comment)
-- Only approve if the code is ready to merge with no major issues
-- The review body should contain your complete review, not just "Approved"
-
-PR URL: %s`, prURL, prURL, prURL, prURL, prURL, prURL, prURL, prURL, prURL)
+PR URL: %s`, prURL, prURL, prURL, prURL, prURL, prURL)
 
 	SendMessage(ctx, b, chatID, fmt.Sprintf("🚀 Launching PR review agent...\n📁 Repository: %s\n🔗 PR: %s", absDir, prURL))
 
@@ -1889,7 +1918,7 @@ func sendGitDiff(ctx context.Context, chatID int64, repoDir, filename string, st
 		statusCmd := exec.Command("git", "status", "--porcelain", filename)
 		statusCmd.Dir = repoDir
 		statusOutput, _ := statusCmd.CombinedOutput()
-		
+
 		if strings.HasPrefix(string(statusOutput), "??") {
 			// It's an untracked file, show its content
 			content, err := os.ReadFile(filepath.Join(repoDir, filename))
@@ -1902,7 +1931,7 @@ func sendGitDiff(ctx context.Context, chatID int64, repoDir, filename string, st
 			var msg strings.Builder
 			msg.WriteString(fmt.Sprintf("📄 *New file:* `%s`\n\n", filename))
 			msg.WriteString("```\n")
-			
+
 			// Truncate content if too long
 			contentStr := string(content)
 			if len(contentStr) > 3000 {
@@ -1927,7 +1956,7 @@ func sendGitDiff(ctx context.Context, chatID int64, repoDir, filename string, st
 	}
 	msg.WriteString(fmt.Sprintf("%s *File:* `%s`\n\n", statusIcon, filename))
 	msg.WriteString("```diff\n")
-	
+
 	// Truncate diff if too long
 	diffStr := string(output)
 	if len(diffStr) > 3500 {
@@ -1942,57 +1971,57 @@ func sendGitDiff(ctx context.Context, chatID int64, repoDir, filename string, st
 
 func handleRunCommand(ctx context.Context, message *models.Message) {
 	parts := strings.Fields(message.Text)
-	
+
 	// Check if we have at least a workspace and a command
 	if len(parts) < 3 {
-		SendMessage(ctx, b, message.Chat.ID, 
-			"❌ Usage: /run <workspace> <command> [args...]\n\n" +
-			"Example: /run ~/projects/myapp npm test\n" +
-			"Example: /run . python script.py --verbose")
+		SendMessage(ctx, b, message.Chat.ID,
+			"❌ Usage: /run <workspace> <command> [args...]\n\n"+
+				"Example: /run ~/projects/myapp npm test\n"+
+				"Example: /run . python script.py --verbose")
 		return
 	}
-	
+
 	// Extract workspace and command
 	workspace := parts[1]
 	command := parts[2]
 	args := parts[3:]
-	
+
 	// Resolve the workspace path
 	absWorkspace, err := ResolvePath(workspace)
 	if err != nil {
 		SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("❌ Error resolving workspace path: %v", err))
 		return
 	}
-	
+
 	// Check if workspace exists
 	if _, err := os.Stat(absWorkspace); os.IsNotExist(err) {
 		SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("❌ Workspace directory does not exist: %s", absWorkspace))
 		return
 	}
-	
+
 	// Send initial message
 	cmdStr := strings.Join(parts[2:], " ")
 	SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("🚀 Running command in workspace: %s\n```\n%s\n```", absWorkspace, cmdStr))
-	
+
 	// Create and execute the command
 	cmd := exec.CommandContext(ctx, command, args...)
 	cmd.Dir = absWorkspace
-	
+
 	// Capture both stdout and stderr
 	output, err := cmd.CombinedOutput()
-	
+
 	// Format the response
 	var responseMsg strings.Builder
 	responseMsg.WriteString(fmt.Sprintf("📁 *Workspace:* `%s`\n", absWorkspace))
 	responseMsg.WriteString(fmt.Sprintf("💻 *Command:* `%s`\n", cmdStr))
 	responseMsg.WriteString("━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
-	
+
 	if err != nil {
 		responseMsg.WriteString(fmt.Sprintf("❌ *Error:* %v\n\n", err))
 	} else {
 		responseMsg.WriteString("✅ *Command completed successfully*\n\n")
 	}
-	
+
 	// Add output if any
 	if len(output) > 0 {
 		responseMsg.WriteString("📄 *Output:*\n```\n")
@@ -2006,13 +2035,13 @@ func handleRunCommand(ctx context.Context, message *models.Message) {
 	} else {
 		responseMsg.WriteString("ℹ️ *No output produced*")
 	}
-	
+
 	// Send the response
 	response := responseMsg.String()
 	if len(response) > 4000 {
 		response = response[:3997] + "..."
 	}
-	
+
 	SendMessage(ctx, b, message.Chat.ID, response)
 }
 
@@ -2022,10 +2051,41 @@ func handleRestartCommand(ctx context.Context, message *models.Message) {
 		SendMessage(ctx, b, message.Chat.ID, "❌ Only admin can restart the bot.")
 		return
 	}
-	
+
 	SendMessage(ctx, b, message.Chat.ID, "🔄 Restarting bot...")
-	
+
 	// Exit the process
 	os.Exit(0)
 }
 
+func handleImagesCommand(ctx context.Context, message *models.Message) {
+	userID := message.From.ID
+	pendingImages := getPendingImages(userID)
+
+	if len(pendingImages) == 0 {
+		SendMessage(ctx, b, message.Chat.ID, "📸 You have no pending images.\n\nSend images to the chat and they will be included in your next `/code` command.")
+		return
+	}
+
+	msg := fmt.Sprintf("📸 *Pending Images: %d*\n\n", len(pendingImages))
+	for i, imagePath := range pendingImages {
+		filename := filepath.Base(imagePath)
+		msg += fmt.Sprintf("%d. `%s`\n", i+1, filename)
+	}
+	msg += "\nThese images will be included in your next `/code` command.\nUse `/clear_images` to remove them."
+
+	SendMessage(ctx, b, message.Chat.ID, msg)
+}
+
+func handleClearImagesCommand(ctx context.Context, message *models.Message) {
+	userID := message.From.ID
+	count := getPendingImageCount(userID)
+
+	if count == 0 {
+		SendMessage(ctx, b, message.Chat.ID, "📸 You have no pending images to clear.")
+		return
+	}
+
+	clearPendingImages(userID)
+	SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("🗑️ Cleared %d pending image(s).", count))
+}
