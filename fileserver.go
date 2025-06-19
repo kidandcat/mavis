@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -85,7 +86,7 @@ func (fs *FileServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	fs.serveFile(w, r, fsPath)
 }
 
-// serveFile serves a single file
+// serveFile serves a single file with support for range requests
 func (fs *FileServer) serveFile(w http.ResponseWriter, r *http.Request, path string) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -106,14 +107,72 @@ func (fs *FileServer) serveFile(w http.ResponseWriter, r *http.Request, path str
 	contentType := getContentType(ext)
 	w.Header().Set("Content-Type", contentType)
 
-	// Set content length
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", info.Size()))
-
-	// Set last modified
+	// Set cache headers
+	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("Last-Modified", info.ModTime().UTC().Format(http.TimeFormat))
 
-	// Copy file content to response
-	io.Copy(w, file)
+	// Handle range requests
+	rangeHeader := r.Header.Get("Range")
+	if rangeHeader != "" {
+		// Parse range header
+		ranges, err := parseRangeHeader(rangeHeader, info.Size())
+		if err != nil || len(ranges) != 1 {
+			// Invalid range
+			w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", info.Size()))
+			http.Error(w, "Requested Range Not Satisfiable", http.StatusRequestedRangeNotSatisfiable)
+			return
+		}
+
+		// Serve partial content
+		start := ranges[0].start
+		end := ranges[0].end
+		length := end - start + 1
+
+		// Seek to start position
+		_, err = file.Seek(start, 0)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Set partial content headers
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", length))
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, info.Size()))
+		w.WriteHeader(http.StatusPartialContent)
+
+		// Copy partial content with buffer
+		buf := make([]byte, 32*1024) // 32KB buffer
+		copied := int64(0)
+		for copied < length {
+			toRead := int64(len(buf))
+			if length-copied < toRead {
+				toRead = length - copied
+			}
+			n, err := file.Read(buf[:toRead])
+			if err != nil && err != io.EOF {
+				return
+			}
+			if n == 0 {
+				break
+			}
+			_, err = w.Write(buf[:n])
+			if err != nil {
+				return
+			}
+			copied += int64(n)
+		}
+	} else {
+		// Serve full file
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", info.Size()))
+
+		// Use buffered copy for better performance
+		buf := make([]byte, 32*1024) // 32KB buffer
+		_, err = io.CopyBuffer(w, file, buf)
+		if err != nil {
+			// Log error but don't send another response
+			log.Printf("Error copying file: %v", err)
+		}
+	}
 }
 
 // serveDirectory serves a directory listing
@@ -285,6 +344,81 @@ func (fs *FileServer) serveDirectory(w http.ResponseWriter, r *http.Request, fsP
 	}
 }
 
+// httpRange represents a single range in a range request
+type httpRange struct {
+	start, end int64
+}
+
+// parseRangeHeader parses the Range header and returns the ranges
+func parseRangeHeader(rangeHeader string, fileSize int64) ([]httpRange, error) {
+	if !strings.HasPrefix(rangeHeader, "bytes=") {
+		return nil, fmt.Errorf("invalid range header")
+	}
+
+	rangeSpec := rangeHeader[6:] // Remove "bytes="
+	ranges := []httpRange{}
+
+	for _, rangeStr := range strings.Split(rangeSpec, ",") {
+		rangeStr = strings.TrimSpace(rangeStr)
+		if rangeStr == "" {
+			continue
+		}
+
+		var start, end int64
+		var err error
+
+		if strings.HasPrefix(rangeStr, "-") {
+			// Suffix range: last N bytes
+			end = fileSize - 1
+			start, err = strconv.ParseInt(rangeStr[1:], 10, 64)
+			if err != nil {
+				return nil, err
+			}
+			start = fileSize - start
+			if start < 0 {
+				start = 0
+			}
+		} else if strings.HasSuffix(rangeStr, "-") {
+			// Prefix range: from start to end of file
+			start, err = strconv.ParseInt(rangeStr[:len(rangeStr)-1], 10, 64)
+			if err != nil {
+				return nil, err
+			}
+			end = fileSize - 1
+		} else {
+			// Full range: start-end
+			parts := strings.Split(rangeStr, "-")
+			if len(parts) != 2 {
+				return nil, fmt.Errorf("invalid range")
+			}
+			start, err = strconv.ParseInt(parts[0], 10, 64)
+			if err != nil {
+				return nil, err
+			}
+			end, err = strconv.ParseInt(parts[1], 10, 64)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		// Validate range
+		if start < 0 || end < 0 || start > end || start >= fileSize {
+			return nil, fmt.Errorf("invalid range")
+		}
+		if end >= fileSize {
+			end = fileSize - 1
+		}
+
+		ranges = append(ranges, httpRange{start: start, end: end})
+	}
+
+	if len(ranges) == 0 {
+		return nil, fmt.Errorf("no valid ranges")
+	}
+
+	return ranges, nil
+}
+
 // formatSize formats file size in human-readable format
 func formatSize(size int64) string {
 	const unit = 1024
@@ -360,12 +494,13 @@ func StartFileServer(root string, port string) (*http.Server, error) {
 	
 	log.Printf("StartFileServer: Starting file server on port %s, serving directory: %s", port, fs.root)
 
-	// Create HTTP server
+	// Create HTTP server with longer timeouts for large files
 	server := &http.Server{
 		Addr:         ":" + port,
 		Handler:      fs,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		ReadTimeout:  5 * time.Minute,  // Increased from 10 seconds
+		WriteTimeout: 30 * time.Minute, // Increased to allow large file downloads
+		IdleTimeout:  120 * time.Second,
 	}
 
 	// Start server in goroutine
