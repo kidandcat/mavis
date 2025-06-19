@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"os/exec"
@@ -17,6 +18,12 @@ import (
 
 	"github.com/go-telegram/bot/models"
 )
+
+// generateUniquePlanFilename creates a unique plan filename for different command types
+func generateUniquePlanFilename(commandType string) string {
+	timestamp := time.Now().UnixNano()
+	return fmt.Sprintf("%s_PLAN_%d.md", strings.ToUpper(commandType), timestamp)
+}
 
 func handleMessage(ctx context.Context, message *models.Message) {
 	// Handle Telegram commands for code agents
@@ -508,9 +515,9 @@ You are working on a git repository. You MUST follow these steps:
 1. First, create a new branch for your changes using: git checkout -b feature/<descriptive-name>
 2. Make all the necessary changes to complete the task: %s
 3. Stage and commit your changes with a descriptive commit message
-   IMPORTANT: When staging files, NEVER include CURRENT_PLAN.md. Use commands like:
-   - git add . && git reset CURRENT_PLAN.md  (to add all except CURRENT_PLAN.md)
-   - Or stage files individually, explicitly excluding CURRENT_PLAN.md
+   IMPORTANT: When staging files, NEVER include *_PLAN_*.md files. Use commands like:
+   - git add . && git reset *_PLAN_*.md  (to add all except plan files)
+   - Or stage files individually, explicitly excluding *_PLAN_*.md files
 4. Try to push the branch to the remote repository using: git push -u origin <branch-name>
 5. If the push fails due to authentication or permissions, that's okay - just report the status
 
@@ -518,7 +525,7 @@ Remember:
 - Always work on a new branch, never directly on main/master
 - Make atomic, well-described commits
 - Include a clear commit message explaining what was changed and why
-- NEVER commit CURRENT_PLAN.md - it's for your planning only
+- NEVER commit *_PLAN_*.md files - they're for your planning only
 
 Task: %s`, task, task)
 
@@ -632,9 +639,9 @@ You are working on a git repository with an existing branch. You MUST follow the
 4. Pull the latest changes from the remote branch: git pull origin %s
 5. Make all the necessary changes to complete the task: %s
 6. Stage and commit your changes with a descriptive commit message
-   IMPORTANT: When staging files, NEVER include CURRENT_PLAN.md. Use commands like:
-   - git add . && git reset CURRENT_PLAN.md  (to add all except CURRENT_PLAN.md)
-   - Or stage files individually, explicitly excluding CURRENT_PLAN.md
+   IMPORTANT: When staging files, NEVER include *_PLAN_*.md files. Use commands like:
+   - git add . && git reset *_PLAN_*.md  (to add all except plan files)
+   - Or stage files individually, explicitly excluding *_PLAN_*.md files
 7. Try to push the changes to the remote repository using: git push origin %s
 8. If the push fails due to authentication or permissions, that's okay - just report the status
 
@@ -643,7 +650,7 @@ Remember:
 - Make atomic, well-described commits
 - Include a clear commit message explaining what was changed and why
 - Ensure you're up to date with the remote branch before making changes
-- NEVER commit CURRENT_PLAN.md - it's for your planning only
+- NEVER commit *_PLAN_*.md files - they're for your planning only
 
 Task: %s`, branch, branch, branch, branch, branch, task, branch, branch, task)
 
@@ -932,8 +939,9 @@ PR URL: %s`, prURL, prURL, prURL, prURL, prURL)
 
 	SendMessage(ctx, b, chatID, fmt.Sprintf("🚀 Launching PR review agent...\n📁 Repository: %s\n🔗 PR: %s", absDir, prURL))
 
-	// Launch the agent with the PR review prompt
-	agentID, err := agentManager.LaunchAgent(ctx, absDir, prReviewPrompt)
+	// Launch the agent with the PR review prompt and unique plan file
+	planFilename := generateUniquePlanFilename("PR_REVIEW")
+	agentID, err := agentManager.LaunchAgentWithPlanFile(ctx, absDir, prReviewPrompt, planFilename)
 	if err != nil {
 		SendMessage(ctx, b, chatID, fmt.Sprintf("❌ Failed to launch agent: %v", err))
 		return
@@ -1006,8 +1014,9 @@ Remember:
 
 	SendMessage(ctx, b, chatID, fmt.Sprintf("🚀 Launching pending changes review agent...\n📁 Repository: %s", absDir))
 
-	// Launch the agent with the pending changes review prompt
-	agentID, err := agentManager.LaunchAgent(ctx, absDir, pendingChangesPrompt)
+	// Launch the agent with the pending changes review prompt and unique plan file
+	planFilename := generateUniquePlanFilename("REVIEW")
+	agentID, err := agentManager.LaunchAgentWithPlanFile(ctx, absDir, pendingChangesPrompt, planFilename)
 	if err != nil {
 		SendMessage(ctx, b, chatID, fmt.Sprintf("❌ Failed to launch agent: %v", err))
 		return
@@ -1107,8 +1116,9 @@ PR URL: %s`, prURL, prURL, prURL, prURL, prURL, prURL)
 
 	SendMessage(ctx, b, chatID, fmt.Sprintf("🚀 Launching PR review agent...\n📁 Repository: %s\n🔗 PR: %s", absDir, prURL))
 
-	// Launch the agent with the PR comment prompt
-	agentID, err := agentManager.LaunchAgent(ctx, absDir, prCommentPrompt)
+	// Launch the agent with the PR comment prompt and unique plan file
+	planFilename := generateUniquePlanFilename("PR_COMMENT")
+	agentID, err := agentManager.LaunchAgentWithPlanFile(ctx, absDir, prCommentPrompt, planFilename)
 	if err != nil {
 		SendMessage(ctx, b, chatID, fmt.Sprintf("❌ Failed to launch agent: %v", err))
 		return
@@ -1232,6 +1242,31 @@ func handleStartCommand(ctx context.Context, message *models.Message) {
 		}
 	}
 
+	// Try to set up UPnP port mapping
+	portInt, _ := strconv.Atoi(port)
+
+	// Attempt UPnP mapping in a goroutine to not block startup
+	go func() {
+		SendMessage(ctx, b, message.Chat.ID, "🔌 Attempting UPnP port mapping...")
+		
+		err := upnpManager.MapPort(portInt, portInt, "TCP", fmt.Sprintf("Mavis Server - %s", buildCmdStr))
+		if err != nil {
+			log.Printf("UPnP mapping failed: %v", err)
+			SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("⚠️ UPnP port mapping failed: %v\n\nServer is still accessible on LAN.", err))
+		} else {
+			// Get public IP
+			publicIP, err := GetPublicIP(ctx)
+			if err != nil {
+				log.Printf("Failed to get public IP: %v", err)
+				SendMessage(ctx, b, message.Chat.ID, "⚠️ UPnP succeeded but couldn't get public IP. Server is accessible on LAN.")
+			} else {
+				// Send success message with public URL
+				publicURL := fmt.Sprintf("http://%s:%s", publicIP, port)
+				SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("✅ UPnP mapping successful!\n\n🌍 *Public URL:* %s\n\n⚠️ *Important:* This URL is accessible from the internet!", publicURL))
+			}
+		}
+	}()
+
 	// Build access URLs
 	var accessURLs strings.Builder
 	accessURLs.WriteString("\n🌐 *Access URLs:*\n")
@@ -1242,7 +1277,7 @@ func handleStartCommand(ctx context.Context, message *models.Message) {
 	accessURLs.WriteString(fmt.Sprintf("  🎯 mDNS: http://%s:%s (if available)\n", lanDomainName, port))
 
 	// Success message
-	successMsg := fmt.Sprintf("✅ LAN server started successfully!\n📁 Workdir: %s\n🔌 Port: %s\n🛠️ Build command: %s\n%s\n💡 *Note:* The .local domain is optional and requires mDNS/Bonjour support. Use IP addresses if .local doesn't work.", absWorkdir, port, buildCmdStr, accessURLs.String())
+	successMsg := fmt.Sprintf("✅ LAN server started successfully!\n📁 Workdir: %s\n🔌 Port: %s\n🛠️ Build command: %s\n%s\n💡 *Note:* Attempting to expose to internet via UPnP...", absWorkdir, port, buildCmdStr, accessURLs.String())
 
 	SendMessage(ctx, b, message.Chat.ID, successMsg)
 
@@ -1253,6 +1288,12 @@ func handleStartCommand(ctx context.Context, message *models.Message) {
 
 		lanServerMutex.Lock()
 		if lanServerProcess != nil {
+			// Clean up UPnP mapping
+			if lanServerPort != "" {
+				portInt, _ := strconv.Atoi(lanServerPort)
+				upnpManager.UnmapPort(portInt)
+			}
+			
 			// Clean up
 			lanServerProcess = nil
 			lanServerPort = ""
@@ -1314,6 +1355,12 @@ func handleStopLANCommand(ctx context.Context, message *models.Message) {
 		if err := lanHTTPServer.Shutdown(shutdownCtx); err != nil {
 			SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("⚠️ Warning: HTTP server shutdown error: %v", err))
 		}
+	}
+
+	// Clean up UPnP mapping
+	if lanServerPort != "" {
+		portInt, _ := strconv.Atoi(lanServerPort)
+		upnpManager.UnmapPort(portInt)
 	}
 
 	// Clean up
@@ -1414,6 +1461,31 @@ func handleServeCommand(ctx context.Context, message *models.Message) {
 		}
 	}
 
+	// Try to set up UPnP port mapping
+	portInt, _ := strconv.Atoi(port)
+
+	// Attempt UPnP mapping in a goroutine to not block startup
+	go func() {
+		SendMessage(ctx, b, message.Chat.ID, "🔌 Attempting UPnP port mapping...")
+		
+		err := upnpManager.MapPort(portInt, portInt, "TCP", "Mavis File Server")
+		if err != nil {
+			log.Printf("UPnP mapping failed: %v", err)
+			SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("⚠️ UPnP port mapping failed: %v\n\nServer is still accessible on LAN.", err))
+		} else {
+			// Get public IP
+			publicIP, err := GetPublicIP(ctx)
+			if err != nil {
+				log.Printf("Failed to get public IP: %v", err)
+				SendMessage(ctx, b, message.Chat.ID, "⚠️ UPnP succeeded but couldn't get public IP. Server is accessible on LAN.")
+			} else {
+				// Send success message with public URL
+				publicURL := fmt.Sprintf("http://%s:%s", publicIP, port)
+				SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("✅ UPnP mapping successful!\n\n🌍 *Public URL:* %s\n\n⚠️ *Important:* This URL is accessible from the internet!", publicURL))
+			}
+		}
+	}()
+
 	// Build access URLs
 	var accessURLs strings.Builder
 	accessURLs.WriteString("\n🌐 *Access URLs:*\n")
@@ -1424,7 +1496,7 @@ func handleServeCommand(ctx context.Context, message *models.Message) {
 	accessURLs.WriteString(fmt.Sprintf("  🎯 mDNS: http://%s:%s (if available)\n", lanDomainName, port))
 
 	// Success message
-	successMsg := fmt.Sprintf("✅ LAN file server started successfully!\n📁 Serving: %s\n🔌 Port: %s\n📄 Server: Go HTTP Server\n%s\n💡 *Note:* The .local domain is optional and requires mDNS/Bonjour support. Use IP addresses if .local doesn't work.", absWorkdir, port, accessURLs.String())
+	successMsg := fmt.Sprintf("✅ LAN file server started successfully!\n📁 Serving: %s\n🔌 Port: %s\n📄 Server: Go HTTP Server\n%s\n💡 *Note:* Attempting to expose to internet via UPnP...", absWorkdir, port, accessURLs.String())
 
 	SendMessage(ctx, b, message.Chat.ID, successMsg)
 }
@@ -1481,16 +1553,16 @@ You are tasked with committing the current changes in a git repository and pushi
 1. First, check the current git status using: git status
 2. Review all uncommitted changes using: git diff
 3. Stage all relevant changes (be careful not to stage files that shouldn't be committed)
-   IMPORTANT: NEVER stage CURRENT_PLAN.md. Use commands like:
-   - git add . && git reset CURRENT_PLAN.md  (to add all except CURRENT_PLAN.md)
-   - Or stage files individually, explicitly excluding CURRENT_PLAN.md
+   IMPORTANT: NEVER stage *_PLAN_*.md files. Use commands like:
+   - git add . && git reset *_PLAN_*.md  (to add all except plan files)
+   - Or stage files individually, explicitly excluding *_PLAN_*.md files
 4. Create a meaningful commit with a descriptive message based on the changes
 5. Push the commit to the remote repository using: git push
 6. If the push fails due to authentication, that's okay - just report the status
 
 Remember:
 - Write clear, descriptive commit messages
-- Don't commit files that shouldn't be in version control (like .env, node_modules, CURRENT_PLAN.md, etc.)
+- Don't commit files that shouldn't be in version control (like .env, node_modules, *_PLAN_*.md files, etc.)
 - Make sure the commit message accurately describes what was changed
 - If there are no changes to commit, report that clearly
 

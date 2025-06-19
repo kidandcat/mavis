@@ -74,6 +74,33 @@ func (m *Manager) LaunchAgentWithID(ctx context.Context, id, folder, prompt stri
 	return nil
 }
 
+// LaunchAgentWithPlanFile creates and starts a new agent with a custom plan filename
+func (m *Manager) LaunchAgentWithPlanFile(ctx context.Context, folder, prompt, planFilename string) (string, error) {
+	m.mu.Lock()
+	var agentNum int
+	if len(m.availableIDs) > 0 {
+		// Reuse an available ID
+		agentNum = m.availableIDs[0]
+		m.availableIDs = m.availableIDs[1:]
+	} else {
+		// Use next sequential ID
+		agentNum = m.nextID
+		m.nextID++
+	}
+	id := fmt.Sprintf("%d", agentNum)
+	m.mu.Unlock()
+
+	agent := NewAgentWithPlanFile(id, folder, prompt, planFilename)
+
+	m.mu.Lock()
+	m.agents[id] = agent
+	m.mu.Unlock()
+
+	agent.StartAsync(ctx)
+
+	return id, nil
+}
+
 // GetAgent returns an agent by ID
 func (m *Manager) GetAgent(id string) (*Agent, error) {
 	m.mu.RLock()

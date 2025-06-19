@@ -26,32 +26,45 @@ const (
 
 // Agent represents a code agent instance
 type Agent struct {
-	ID        string
-	Folder    string
-	Prompt    string
-	Status    AgentStatus
-	Output    string
-	Error     string
-	StartTime time.Time
-	EndTime   time.Time
-	cmd       *exec.Cmd
-	mu        sync.RWMutex
+	ID           string
+	Folder       string
+	Prompt       string
+	Status       AgentStatus
+	Output       string
+	Error        string
+	StartTime    time.Time
+	EndTime      time.Time
+	cmd          *exec.Cmd
+	mu           sync.RWMutex
+	PlanFilename string // Custom plan filename (defaults to CURRENT_PLAN.md)
 }
 
 // NewAgent creates a new agent instance
 func NewAgent(id, folder, prompt string) *Agent {
 	return &Agent{
-		ID:     id,
-		Folder: folder,
-		Prompt: prompt,
-		Status: StatusPending,
+		ID:           id,
+		Folder:       folder,
+		Prompt:       prompt,
+		Status:       StatusPending,
+		PlanFilename: "CURRENT_PLAN.md", // Default plan filename
+	}
+}
+
+// NewAgentWithPlanFile creates a new agent instance with a custom plan filename
+func NewAgentWithPlanFile(id, folder, prompt, planFilename string) *Agent {
+	return &Agent{
+		ID:           id,
+		Folder:       folder,
+		Prompt:       prompt,
+		Status:       StatusPending,
+		PlanFilename: planFilename,
 	}
 }
 
 // Start launches the agent
 func (a *Agent) Start(ctx context.Context) error {
-	// Create CURRENT_PLAN.md file
-	planFile := fmt.Sprintf("%s/CURRENT_PLAN.md", a.Folder)
+	// Create plan file
+	planFile := fmt.Sprintf("%s/%s", a.Folder, a.PlanFilename)
 	planContent := `# Current Task Plan
 
 ## Task
@@ -64,7 +77,7 @@ func (a *Agent) Start(ctx context.Context) error {
 (The AI will update progress here as it works)
 `
 	if err := os.WriteFile(planFile, []byte(planContent), 0644); err != nil {
-		return fmt.Errorf("failed to create CURRENT_PLAN.md: %v", err)
+		return fmt.Errorf("failed to create %s: %v", a.PlanFilename, err)
 	}
 
 	// Defer cleanup of the plan file
@@ -72,14 +85,14 @@ func (a *Agent) Start(ctx context.Context) error {
 		os.Remove(planFile)
 	}()
 
-	// Modified prompt to instruct the AI to use CURRENT_PLAN.md
-	enhancedPrompt := `IMPORTANT: Before starting any work, you MUST:
-1. Read the file CURRENT_PLAN.md in the current directory
+	// Modified prompt to instruct the AI to use the plan file
+	enhancedPrompt := fmt.Sprintf(`IMPORTANT: Before starting any work, you MUST:
+1. Read the file %s in the current directory
 2. Write your detailed plan for completing the task in the "## Plan" section
 3. As you work, update the "## Progress" section with what you've completed
 4. Keep the plan updated as you discover new requirements or change approach
 
-` + a.Prompt
+`, a.PlanFilename) + a.Prompt
 
 	// Use a shell to properly execute the claude script
 	// Escape single quotes in the prompt to prevent shell injection
