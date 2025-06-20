@@ -159,6 +159,35 @@ func launchCodeAgentCommand(ctx context.Context, chatID int64, directory, task s
 		return
 	}
 
+	// Check if the agent was queued
+	if strings.HasPrefix(agentID, "queued-") {
+		// Extract queue position and queue ID from the ID
+		parts := strings.Split(agentID, "-")
+		var queuePos, queueID string
+		for i := 0; i < len(parts); i++ {
+			if parts[i] == "pos" && i+1 < len(parts) {
+				queuePos = parts[i+1]
+			} else if parts[i] == "qid" && i+1 < len(parts) {
+				queueID = parts[i+1]
+			}
+		}
+		
+		// Register the queued agent for tracking
+		if queueID != "" {
+			queueTracker.RegisterQueuedAgent(queueID, chatID, absDir, task)
+		}
+		
+		queuedTasks := agentManager.GetQueuedTasksForFolder(absDir)
+		SendMessage(ctx, b, chatID, fmt.Sprintf("⏳ Agent queued!\n📁 Directory: %s\n📝 Task: %s\n🔢 Queue position: %s\n📊 Total queued tasks for this folder: %d\n\nThe agent will start automatically when the current agent in this folder completes.",
+			directory, task, queuePos, queuedTasks))
+		
+		// Clear pending images even for queued agents
+		if len(pendingImages) > 0 {
+			clearPendingImages(chatID)
+		}
+		return
+	}
+
 	// Register the agent for this user to receive notifications
 	RegisterAgentForUser(agentID, chatID)
 
@@ -194,6 +223,9 @@ func listCodeAgentsCommand(ctx context.Context, chatID int64) {
 		}
 
 		message += fmt.Sprintf("%s `%s` - %s\n", status, agent.ID, string(agent.Status))
+		if agent.Folder != "" {
+			message += fmt.Sprintf("   📁 %s\n", agent.Folder)
+		}
 		if agent.Prompt != "" {
 			// Truncate prompt if too long
 			prompt := agent.Prompt
@@ -203,6 +235,15 @@ func listCodeAgentsCommand(ctx context.Context, chatID int64) {
 			message += fmt.Sprintf("   📝 %s\n", prompt)
 		}
 		message += "\n"
+	}
+	
+	// Add queue status
+	queueStatus := agentManager.GetQueueStatus()
+	if len(queueStatus) > 0 {
+		message += "\n📊 *Queued Tasks:*\n"
+		for folder, count := range queueStatus {
+			message += fmt.Sprintf("   📁 %s: %d task(s) waiting\n", folder, count)
+		}
 	}
 
 	SendMessage(ctx, b, chatID, message)

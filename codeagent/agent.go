@@ -63,6 +63,12 @@ func NewAgentWithPlanFile(id, folder, prompt, planFilename string) *Agent {
 
 // Start launches the agent
 func (a *Agent) Start(ctx context.Context) error {
+	// Set status to running
+	a.mu.Lock()
+	a.Status = StatusRunning
+	a.StartTime = time.Now()
+	a.mu.Unlock()
+	
 	// Create plan file
 	planFile := fmt.Sprintf("%s/%s", a.Folder, a.PlanFilename)
 	planContent := `# Current Task Plan

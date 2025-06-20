@@ -84,6 +84,26 @@ func main() {
 
 	// Initialize code agent manager
 	agentManager = codeagent.NewManager()
+	
+	// Set callback for when queued agents start
+	agentManager.SetAgentStartCallback(func(agentID, folder, prompt, queueID string) {
+		// Get the queued agent info to find the user
+		if queueInfo, exists := queueTracker.GetQueuedAgentInfo(queueID); exists {
+			// Register the agent for the user who queued it
+			RegisterAgentForUser(agentID, queueInfo.UserID)
+			
+			// Notify the user that their queued agent has started
+			SendMessage(ctx, b, queueInfo.UserID, fmt.Sprintf("🏃 Queued agent started!\n🆔 ID: `%s`\n📁 Directory: %s\n📝 Task: %s\n\nUse `/status %s` to check status.",
+				agentID, folder, prompt, agentID))
+			
+			// Remove from queue tracker
+			queueTracker.RemoveQueuedAgent(queueID)
+			
+			log.Printf("Queued agent started: ID=%s, Folder=%s, User=%d", agentID, folder, queueInfo.UserID)
+		} else {
+			log.Printf("WARNING: Queued agent started but no queue info found: ID=%s, QueueID=%s", agentID, queueID)
+		}
+	})
 
 	b, err = bot.New(telegramBotToken, bot.WithDefaultHandler(handler))
 	if err != nil {
