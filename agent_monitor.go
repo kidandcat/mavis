@@ -67,14 +67,16 @@ func MonitorAgentsProcess(ctx context.Context, b *bot.Bot) {
 						continue
 					}
 
-					// Mark as notified
+					// Mark as notified BEFORE sending to prevent any race condition
 					notifiedAgents[agent.ID] = true
+					log.Printf("[AgentMonitor] Marking agent %s as notified for user %d", agent.ID, userID)
 
 					// Send notification using SendLongMessage for full output
 					notification := formatAgentCompletionNotification(agent)
+					log.Printf("[AgentMonitor] Sending completion notification for agent %s, status: %s", agent.ID, agent.Status)
 					SendLongMessage(ctx, b, userID, notification)
 
-					log.Printf("Sent completion notification for agent %s to user %d", agent.ID, userID)
+					log.Printf("[AgentMonitor] Sent completion notification for agent %s to user %d", agent.ID, userID)
 
 					// Remove the agent from the manager now that notification is sent
 					if err := agentManager.RemoveAgent(agent.ID); err != nil {

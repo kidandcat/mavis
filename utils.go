@@ -20,6 +20,9 @@ import (
 )
 
 func SendMessage(ctx context.Context, b *bot.Bot, chatID int64, text string) {
+	// Add debug logging to track message sending
+	log.Printf("[SendMessage] Sending to chat %d, text length: %d, preview: %.50s...", chatID, len(text), text)
+	
 	_, err := b.SendMessage(ctx, &bot.SendMessageParams{
 		Text:      bot.EscapeMarkdownUnescaped(text),
 		ChatID:    chatID,
@@ -27,6 +30,8 @@ func SendMessage(ctx context.Context, b *bot.Bot, chatID int64, text string) {
 	})
 	if err != nil {
 		log.Println("Error sending message", err)
+	} else {
+		log.Printf("[SendMessage] Successfully sent message to chat %d", chatID)
 	}
 }
 
@@ -35,6 +40,8 @@ func SendMessage(ctx context.Context, b *bot.Bot, chatID int64, text string) {
 func SendLongMessage(ctx context.Context, b *bot.Bot, chatID int64, text string) {
 	const maxMessageLength = 4000 // Telegram's limit is 4096, leave some buffer
 
+	log.Printf("[SendLongMessage] Called for chat %d, text length: %d", chatID, len(text))
+
 	if len(text) <= maxMessageLength {
 		SendMessage(ctx, b, chatID, text)
 		return
@@ -42,6 +49,7 @@ func SendLongMessage(ctx context.Context, b *bot.Bot, chatID int64, text string)
 
 	// Split the message into parts
 	parts := splitMessage(text, maxMessageLength)
+	log.Printf("[SendLongMessage] Splitting into %d parts", len(parts))
 
 	for i, part := range parts {
 		if i > 0 {

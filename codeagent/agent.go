@@ -127,11 +127,6 @@ func (a *Agent) Start(ctx context.Context) error {
 // StartAsync launches the agent asynchronously
 func (a *Agent) StartAsync(ctx context.Context) {
 	go func() {
-		a.mu.Lock()
-		a.Status = StatusRunning
-		a.StartTime = time.Now()
-		a.mu.Unlock()
-
 		_ = a.Start(ctx)
 	}()
 }
