@@ -171,16 +171,16 @@ func launchCodeAgentCommand(ctx context.Context, chatID int64, directory, task s
 				queueID = parts[i+1]
 			}
 		}
-		
+
 		// Register the queued agent for tracking
 		if queueID != "" {
 			queueTracker.RegisterQueuedAgent(queueID, chatID, absDir, task)
 		}
-		
+
 		queuedTasks := agentManager.GetQueuedTasksForFolder(absDir)
 		SendMessage(ctx, b, chatID, fmt.Sprintf("⏳ Agent queued!\n📁 Directory: %s\n📝 Task: %s\n🔢 Queue position: %s\n📊 Total queued tasks for this folder: %d\n\nThe agent will start automatically when the current agent in this folder completes.",
 			directory, task, queuePos, queuedTasks))
-		
+
 		// Clear pending images even for queued agents
 		if len(pendingImages) > 0 {
 			clearPendingImages(chatID)
@@ -236,7 +236,7 @@ func listCodeAgentsCommand(ctx context.Context, chatID int64) {
 		}
 		message += "\n"
 	}
-	
+
 	// Add queue status
 	queueStatus := agentManager.GetQueueStatus()
 	if len(queueStatus) > 0 {
@@ -1289,7 +1289,7 @@ func handleStartCommand(ctx context.Context, message *models.Message) {
 	// Attempt UPnP mapping in a goroutine to not block startup
 	go func() {
 		SendMessage(ctx, b, message.Chat.ID, "🔌 Attempting UPnP port mapping...")
-		
+
 		err := upnpManager.MapPort(portInt, portInt, "TCP", fmt.Sprintf("Mavis Server - %s", buildCmdStr))
 		if err != nil {
 			log.Printf("UPnP mapping failed: %v", err)
@@ -1334,7 +1334,7 @@ func handleStartCommand(ctx context.Context, message *models.Message) {
 				portInt, _ := strconv.Atoi(lanServerPort)
 				upnpManager.UnmapPort(portInt)
 			}
-			
+
 			// Clean up
 			lanServerProcess = nil
 			lanServerPort = ""
@@ -1508,7 +1508,7 @@ func handleServeCommand(ctx context.Context, message *models.Message) {
 	// Attempt UPnP mapping in a goroutine to not block startup
 	go func() {
 		SendMessage(ctx, b, message.Chat.ID, "🔌 Attempting UPnP port mapping...")
-		
+
 		err := upnpManager.MapPort(portInt, portInt, "TCP", "Mavis File Server")
 		if err != nil {
 			log.Printf("UPnP mapping failed: %v", err)

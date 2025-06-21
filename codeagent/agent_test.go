@@ -129,7 +129,7 @@ func TestManagerAutoID(t *testing.T) {
 		t.Fatalf("Failed to launch agent 1: %v", err)
 	}
 
-	id2, err := manager.LaunchAgent(ctx, "/tmp", "test2")
+	id2, err := manager.LaunchAgent(ctx, "/tmp2", "test2")
 	if err != nil {
 		t.Fatalf("Failed to launch agent 2: %v", err)
 	}

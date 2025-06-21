@@ -19,7 +19,7 @@ func TestSimpleIDGeneration(t *testing.T) {
 		t.Errorf("Expected first agent ID to be '1', got '%s'", id1)
 	}
 
-	id2, err := manager.LaunchAgent(ctx, "/tmp", "test task 2")
+	id2, err := manager.LaunchAgent(ctx, "/tmp2", "test task 2")
 	if err != nil {
 		t.Fatalf("Failed to launch agent 2: %v", err)
 	}

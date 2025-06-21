@@ -104,8 +104,8 @@ func (m *Manager) createAndStartAgent(ctx context.Context, folder, prompt string
 	// Start agent with completion callback
 	go func() {
 		agent.Start(ctx)
-		// When agent completes, process the queue for this folder
-		m.processQueueForFolder(folder)
+		// Don't process queue immediately - let the monitor handle notification first
+		// The monitor will call RemoveAgent which will trigger processQueueForFolder
 	}()
 
 	return id
@@ -156,11 +156,16 @@ func (m *Manager) LaunchAgentWithID(ctx context.Context, id, folder, prompt stri
 	m.agents[id] = agent
 	m.mu.Unlock()
 
+	// Track this agent as running in its folder
+	m.queueMu.Lock()
+	m.runningPerFolder[folder] = id
+	m.queueMu.Unlock()
+
 	// Start agent with completion callback for queue processing
 	go func() {
 		agent.Start(ctx)
-		// When agent completes, process the queue for this folder
-		m.processQueueForFolder(folder)
+		// Don't process queue immediately - let the monitor handle notification first
+		// The monitor will call RemoveAgent which will trigger processQueueForFolder
 	}()
 
 	return nil
@@ -168,6 +173,27 @@ func (m *Manager) LaunchAgentWithID(ctx context.Context, id, folder, prompt stri
 
 // LaunchAgentWithPlanFile creates and starts a new agent with a custom plan filename
 func (m *Manager) LaunchAgentWithPlanFile(ctx context.Context, folder, prompt, planFilename string) (string, error) {
+	// Check if an agent is already running in this folder
+	m.queueMu.Lock()
+	if runningID, exists := m.runningPerFolder[folder]; exists {
+		// Agent is already running in this folder, add to queue
+		queueID := fmt.Sprintf("queue-%d-%s", time.Now().Unix(), folder)
+		task := QueuedTask{
+			Folder:  folder,
+			Prompt:  prompt,
+			Ctx:     ctx,
+			QueueID: queueID,
+		}
+		
+		m.folderQueues[folder] = append(m.folderQueues[folder], task)
+		queuePos := len(m.folderQueues[folder])
+		m.queueMu.Unlock()
+		
+		// Return a placeholder ID indicating the task is queued
+		return fmt.Sprintf("queued-%s-pos-%d-qid-%s", runningID, queuePos, queueID), nil
+	}
+	m.queueMu.Unlock()
+
 	m.mu.Lock()
 	var agentNum int
 	if len(m.availableIDs) > 0 {
@@ -188,11 +214,16 @@ func (m *Manager) LaunchAgentWithPlanFile(ctx context.Context, folder, prompt, p
 	m.agents[id] = agent
 	m.mu.Unlock()
 
+	// Track this agent as running in its folder
+	m.queueMu.Lock()
+	m.runningPerFolder[folder] = id
+	m.queueMu.Unlock()
+
 	// Start agent with completion callback for queue processing
 	go func() {
 		agent.Start(ctx)
-		// When agent completes, process the queue for this folder
-		m.processQueueForFolder(folder)
+		// Don't process queue immediately - let the monitor handle notification first
+		// The monitor will call RemoveAgent which will trigger processQueueForFolder
 	}()
 
 	return id, nil
