@@ -26,11 +26,11 @@ type Manager struct {
 	agents           map[string]*Agent
 	mu               sync.RWMutex
 	nextID           int
-	availableIDs     []int // Pool of reusable IDs from cleaned up agents
+	availableIDs     []int                   // Pool of reusable IDs from cleaned up agents
 	folderQueues     map[string][]QueuedTask // Queue of tasks per folder
-	runningPerFolder map[string]string        // Maps folder to currently running agent ID
-	queueMu          sync.Mutex               // Separate mutex for queue operations
-	startCallback    AgentStartCallback       // Callback when queued agent starts
+	runningPerFolder map[string]string       // Maps folder to currently running agent ID
+	queueMu          sync.Mutex              // Separate mutex for queue operations
+	startCallback    AgentStartCallback      // Callback when queued agent starts
 }
 
 // NewManager creates a new agent manager
@@ -62,20 +62,20 @@ func (m *Manager) LaunchAgent(ctx context.Context, folder, prompt string) (strin
 			Ctx:     ctx,
 			QueueID: queueID,
 		}
-		
+
 		m.folderQueues[folder] = append(m.folderQueues[folder], task)
 		queuePos := len(m.folderQueues[folder])
 		m.queueMu.Unlock()
-		
+
 		// Return a placeholder ID indicating the task is queued
 		return fmt.Sprintf("queued-%s-pos-%d-qid-%s", runningID, queuePos, queueID), nil
 	}
-	
+
 	// No agent running in this folder, start immediately
 	id := m.createAndStartAgent(ctx, folder, prompt)
 	m.runningPerFolder[folder] = id
 	m.queueMu.Unlock()
-	
+
 	return id, nil
 }
 
@@ -114,29 +114,38 @@ func (m *Manager) createAndStartAgent(ctx context.Context, folder, prompt string
 // processQueueForFolder checks if there are queued tasks for a folder and starts the next one
 func (m *Manager) processQueueForFolder(folder string) {
 	m.queueMu.Lock()
-	defer m.queueMu.Unlock()
-	
+
 	// Remove the current running agent for this folder
 	delete(m.runningPerFolder, folder)
-	
+
 	// Check if there are queued tasks
+	var taskToProcess *QueuedTask
 	if queue, exists := m.folderQueues[folder]; exists && len(queue) > 0 {
 		// Get the next task
-		task := queue[0]
+		taskToProcess = &queue[0]
 		m.folderQueues[folder] = queue[1:]
-		
+
 		// If queue is now empty, remove it
 		if len(m.folderQueues[folder]) == 0 {
 			delete(m.folderQueues, folder)
 		}
-		
+	}
+
+	m.queueMu.Unlock()
+
+	// Process the task outside of the queue lock to avoid deadlock
+	if taskToProcess != nil {
 		// Start the queued task
-		id := m.createAndStartAgent(task.Ctx, task.Folder, task.Prompt)
+		id := m.createAndStartAgent(taskToProcess.Ctx, taskToProcess.Folder, taskToProcess.Prompt)
+
+		// Update the running agent for this folder
+		m.queueMu.Lock()
 		m.runningPerFolder[folder] = id
-		
+		m.queueMu.Unlock()
+
 		// Call the callback if set
 		if m.startCallback != nil {
-			m.startCallback(id, task.Folder, task.Prompt, task.QueueID)
+			m.startCallback(id, taskToProcess.Folder, taskToProcess.Prompt, taskToProcess.QueueID)
 		}
 	}
 }
@@ -184,11 +193,11 @@ func (m *Manager) LaunchAgentWithPlanFile(ctx context.Context, folder, prompt, p
 			Ctx:     ctx,
 			QueueID: queueID,
 		}
-		
+
 		m.folderQueues[folder] = append(m.folderQueues[folder], task)
 		queuePos := len(m.folderQueues[folder])
 		m.queueMu.Unlock()
-		
+
 		// Return a placeholder ID indicating the task is queued
 		return fmt.Sprintf("queued-%s-pos-%d-qid-%s", runningID, queuePos, queueID), nil
 	}
@@ -293,16 +302,31 @@ func (m *Manager) KillAgent(id string) error {
 // RemoveAgent removes an agent from the manager
 func (m *Manager) RemoveAgent(id string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	agent, exists := m.agents[id]
 	if !exists {
+		m.mu.Unlock()
 		return fmt.Errorf("agent %s not found", id)
 	}
 
+	// Get agent status and check if it's running before releasing the lock
+	status := agent.GetStatus()
+
+	// Check if this agent was running for a folder
+	var folderToProcess string
+	m.queueMu.Lock()
+	for folder, runningID := range m.runningPerFolder {
+		if runningID == id {
+			delete(m.runningPerFolder, folder)
+			folderToProcess = folder
+			break
+		}
+	}
+	m.queueMu.Unlock()
+
 	// Kill if running
-	if agent.GetStatus() == StatusRunning {
+	if status == StatusRunning {
 		if err := agent.Kill(); err != nil {
+			m.mu.Unlock()
 			return fmt.Errorf("failed to kill agent: %w", err)
 		}
 	}
@@ -314,19 +338,13 @@ func (m *Manager) RemoveAgent(id string) error {
 	if n, _ := fmt.Sscanf(id, "%d", &agentNum); n == 1 {
 		m.availableIDs = append(m.availableIDs, agentNum)
 	}
-	
-	// Check if this agent was running for a folder and process queue
-	m.queueMu.Lock()
-	for folder, runningID := range m.runningPerFolder {
-		if runningID == id {
-			delete(m.runningPerFolder, folder)
-			m.queueMu.Unlock()
-			// Process queue for this folder
-			m.processQueueForFolder(folder)
-			return nil
-		}
+
+	m.mu.Unlock()
+
+	// Process queue for the folder if needed (after releasing main mutex)
+	if folderToProcess != "" {
+		m.processQueueForFolder(folderToProcess)
 	}
-	m.queueMu.Unlock()
 
 	return nil
 }
@@ -348,6 +366,7 @@ func (m *Manager) WaitForAgent(ctx context.Context, id string) (AgentInfo, error
 		case <-ticker.C:
 			status := agent.GetStatus()
 			if status == StatusFinished || status == StatusFailed || status == StatusKilled {
+				// ToInfo() is safe to call here as it no longer has nested lock issues
 				return agent.ToInfo(), nil
 			}
 		}
@@ -388,17 +407,25 @@ func (m *Manager) CleanupFinishedAgents() int {
 	defer m.mu.Unlock()
 
 	count := 0
+	agentsToRemove := make([]string, 0)
+
+	// First pass: identify agents to remove
 	for id, agent := range m.agents {
 		status := agent.GetStatus()
 		if status == StatusFinished || status == StatusFailed || status == StatusKilled {
-			delete(m.agents, id)
-			count++
+			agentsToRemove = append(agentsToRemove, id)
+		}
+	}
 
-			// Add the ID back to available pool for reuse
-			var agentNum int
-			if n, _ := fmt.Sscanf(id, "%d", &agentNum); n == 1 {
-				m.availableIDs = append(m.availableIDs, agentNum)
-			}
+	// Second pass: remove the identified agents
+	for _, id := range agentsToRemove {
+		delete(m.agents, id)
+		count++
+
+		// Add the ID back to available pool for reuse
+		var agentNum int
+		if n, _ := fmt.Sscanf(id, "%d", &agentNum); n == 1 {
+			m.availableIDs = append(m.availableIDs, agentNum)
 		}
 	}
 
@@ -412,7 +439,8 @@ func (m *Manager) GetRunningCount() int {
 
 	count := 0
 	for _, agent := range m.agents {
-		if agent.GetStatus() == StatusRunning {
+		status := agent.GetStatus()
+		if status == StatusRunning {
 			count++
 		}
 	}
@@ -432,12 +460,12 @@ func (m *Manager) GetTotalCount() int {
 func (m *Manager) GetQueueStatus() map[string]int {
 	m.queueMu.Lock()
 	defer m.queueMu.Unlock()
-	
+
 	status := make(map[string]int)
 	for folder, queue := range m.folderQueues {
 		status[folder] = len(queue)
 	}
-	
+
 	return status
 }
 
@@ -445,11 +473,11 @@ func (m *Manager) GetQueueStatus() map[string]int {
 func (m *Manager) GetQueuedTasksForFolder(folder string) int {
 	m.queueMu.Lock()
 	defer m.queueMu.Unlock()
-	
+
 	if queue, exists := m.folderQueues[folder]; exists {
 		return len(queue)
 	}
-	
+
 	return 0
 }
 
@@ -457,11 +485,10 @@ func (m *Manager) GetQueuedTasksForFolder(folder string) int {
 func (m *Manager) IsAgentRunningInFolder(folder string) (bool, string) {
 	m.queueMu.Lock()
 	defer m.queueMu.Unlock()
-	
+
 	if agentID, exists := m.runningPerFolder[folder]; exists {
 		return true, agentID
 	}
-	
+
 	return false, ""
 }
-

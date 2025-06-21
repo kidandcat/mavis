@@ -68,7 +68,7 @@ func (a *Agent) Start(ctx context.Context) error {
 	a.Status = StatusRunning
 	a.StartTime = time.Now()
 	a.mu.Unlock()
-	
+
 	// Create plan file
 	planFile := fmt.Sprintf("%s/%s", a.Folder, a.PlanFilename)
 	planContent := `# Current Task Plan
@@ -193,6 +193,16 @@ func (a *Agent) ToInfo() AgentInfo {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 
+	// Calculate duration directly to avoid nested lock acquisition
+	var duration time.Duration
+	if !a.StartTime.IsZero() {
+		if a.EndTime.IsZero() {
+			duration = time.Since(a.StartTime)
+		} else {
+			duration = a.EndTime.Sub(a.StartTime)
+		}
+	}
+
 	return AgentInfo{
 		ID:        a.ID,
 		Folder:    a.Folder,
@@ -202,7 +212,7 @@ func (a *Agent) ToInfo() AgentInfo {
 		Error:     a.Error,
 		StartTime: a.StartTime,
 		EndTime:   a.EndTime,
-		Duration:  a.GetDuration(),
+		Duration:  duration,
 	}
 }
 
@@ -218,4 +228,3 @@ type AgentInfo struct {
 	EndTime   time.Time
 	Duration  time.Duration
 }
-
