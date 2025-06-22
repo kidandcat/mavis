@@ -60,6 +60,7 @@ func MonitorAgentsProcess(ctx context.Context, b *bot.Bot) {
 				log.Printf("[AgentMonitor] Checking agent %s, status: %s, notified: %v%s", agent.ID, agent.Status, notifiedAgents[agent.ID], runningDuration)
 				// Skip if we've already notified about this agent (unless removal failed)
 				if notifiedAgents[agent.ID] && !failedRemovals[agent.ID] {
+					log.Printf("[AgentMonitor] Agent %s already notified and not in failed removals, skipping", agent.ID)
 					continue
 				}
 
@@ -77,8 +78,18 @@ func MonitorAgentsProcess(ctx context.Context, b *bot.Bot) {
 					agentUserMu.RUnlock()
 
 					if !exists {
-						// If we don't know who launched it, skip
-						log.Printf("[AgentMonitor] WARNING: No user found for agent %s, skipping notification", agent.ID)
+						// If we don't know who launched it, skip notification but still try to remove
+						log.Printf("[AgentMonitor] WARNING: No user found for agent %s, skipping notification but will try removal", agent.ID)
+						// Still try to remove the agent to prevent it from being stuck
+						log.Printf("[AgentMonitor] Attempting to remove orphaned agent %s from manager (folder: %s)", agent.ID, agent.Folder)
+						if err := agentManager.RemoveAgent(agent.ID); err != nil {
+							log.Printf("[AgentMonitor] ERROR: Failed to remove orphaned agent %s: %v", agent.ID, err)
+							failedRemovals[agent.ID] = true
+						} else {
+							log.Printf("[AgentMonitor] Successfully removed orphaned agent %s", agent.ID)
+							delete(failedRemovals, agent.ID)
+							delete(notifiedAgents, agent.ID)
+						}
 						continue
 					}
 
@@ -92,6 +103,8 @@ func MonitorAgentsProcess(ctx context.Context, b *bot.Bot) {
 						log.Printf("[AgentMonitor] Sending completion notification for agent %s, status: %s", agent.ID, agent.Status)
 						SendLongMessage(ctx, b, userID, notification)
 						log.Printf("[AgentMonitor] Sent completion notification for agent %s to user %d", agent.ID, userID)
+					} else {
+						log.Printf("[AgentMonitor] Skipping notification for agent %s (failed removal retry)", agent.ID)
 					}
 
 					// Remove the agent from the manager now that notification is sent
@@ -99,9 +112,18 @@ func MonitorAgentsProcess(ctx context.Context, b *bot.Bot) {
 					if err := agentManager.RemoveAgent(agent.ID); err != nil {
 						log.Printf("[AgentMonitor] ERROR: Failed to remove agent %s: %v", agent.ID, err)
 						failedRemovals[agent.ID] = true
+						// Don't give up - we'll retry next cycle
+						log.Printf("[AgentMonitor] Agent %s marked for removal retry", agent.ID)
 					} else {
 						log.Printf("[AgentMonitor] Successfully removed agent %s after notification", agent.ID)
 						delete(failedRemovals, agent.ID)
+						delete(notifiedAgents, agent.ID) // Clear notification flag since agent is removed
+
+						// Clean up user tracking immediately
+						agentUserMu.Lock()
+						delete(agentUserMap, agent.ID)
+						agentUserMu.Unlock()
+						log.Printf("[AgentMonitor] Cleaned up tracking for agent %s", agent.ID)
 					}
 				}
 			}
@@ -233,4 +255,38 @@ func formatTimeUntilReset() string {
 		return fmt.Sprintf("%d hours %d minutes", hours, minutes)
 	}
 	return fmt.Sprintf("%d minutes", minutes)
+}
+
+// ForceCleanupStuckAgents manually removes all finished/failed/killed agents that might be stuck
+// This is a recovery function for when the automatic monitor fails
+func ForceCleanupStuckAgents() int {
+	log.Printf("[ForceCleanup] Starting manual cleanup of stuck agents...")
+
+	agents := agentManager.ListAgents()
+	cleanedCount := 0
+
+	for _, agent := range agents {
+		// Only clean up completed agents
+		if agent.Status == codeagent.StatusFinished ||
+			agent.Status == codeagent.StatusFailed ||
+			agent.Status == codeagent.StatusKilled {
+
+			log.Printf("[ForceCleanup] Found stuck agent %s with status %s in folder %s", agent.ID, agent.Status, agent.Folder)
+
+			if err := agentManager.RemoveAgent(agent.ID); err != nil {
+				log.Printf("[ForceCleanup] ERROR: Failed to remove stuck agent %s: %v", agent.ID, err)
+			} else {
+				log.Printf("[ForceCleanup] Successfully removed stuck agent %s", agent.ID)
+				cleanedCount++
+
+				// Clean up tracking
+				agentUserMu.Lock()
+				delete(agentUserMap, agent.ID)
+				agentUserMu.Unlock()
+			}
+		}
+	}
+
+	log.Printf("[ForceCleanup] Cleanup complete. Removed %d stuck agents", cleanedCount)
+	return cleanedCount
 }

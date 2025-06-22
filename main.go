@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -107,7 +108,10 @@ func main() {
 		}
 	})
 
-	b, err = bot.New(telegramBotToken, bot.WithDefaultHandler(handler))
+	// Create bot with custom error handler
+	b, err = bot.New(telegramBotToken, 
+		bot.WithDefaultHandler(handler),
+		bot.WithErrorsHandler(handleBotError))
 	if err != nil {
 		panic("Error creating bot (telegram token: " + telegramBotToken + "): " + err.Error())
 	}
@@ -127,7 +131,85 @@ func main() {
 	}
 
 	log.Println("Ready")
-	b.Start(ctx)
+	
+	// Start bot with error handling
+	if err := startBotWithErrorHandling(ctx); err != nil {
+		log.Printf("[TGBOT] [ERROR] Bot stopped with error: %v", err)
+	}
+}
+
+func handleBotError(err error) {
+	if err == nil {
+		return
+	}
+	
+	errStr := err.Error()
+	// Check if it's the specific conflict error
+	if contains(errStr, "error get updates") && contains(errStr, "conflict") && 
+	   contains(errStr, "Conflict: terminated by other getUpdates request") {
+		log.Printf("[TGBOT] [ERROR] %s", errStr)
+		// Send danger message
+		ctx := context.Background()
+		sendDangerMessage(ctx, "⚠️ DANGER: Another Telegram bot instance is running!\n\nThe bot detected a conflict - another instance is already polling for updates. Only one bot instance can run at a time.\n\nPlease stop the other instance and restart this bot.")
+		// Do nothing else - the bot will handle this error internally
+		return
+	}
+	
+	// Log other errors
+	log.Printf("[TGBOT] [ERROR] Bot error: %v", err)
+}
+
+func startBotWithErrorHandling(ctx context.Context) error {
+	// Use a channel to capture panic from bot.Start
+	errChan := make(chan error, 1)
+	
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				errChan <- fmt.Errorf("bot panicked: %v", r)
+			}
+		}()
+		
+		// Start the bot
+		b.Start(ctx)
+		errChan <- nil
+	}()
+	
+	// Monitor for errors
+	for {
+		select {
+		case err := <-errChan:
+			if err != nil {
+				return err
+			}
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && strings.Contains(s, substr))
+}
+
+func sendDangerMessage(ctx context.Context, message string) {
+	// Try to send a danger message to admin
+	// We can't use the bot since it's in error state, so we'll log it prominently
+	log.Printf("\n"+
+		"════════════════════════════════════════════════\n"+
+		"⚠️  DANGER - BOT CONFLICT DETECTED ⚠️\n"+
+		"════════════════════════════════════════════════\n"+
+		"%s\n"+
+		"════════════════════════════════════════════════\n", message)
+	
+	// If we can, try to send via bot (might fail)
+	if b != nil {
+		_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: AdminUserID,
+			Text:   message,
+		})
+	}
 }
 
 func handler(ctx context.Context, b *bot.Bot, update *models.Update) {

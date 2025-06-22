@@ -109,6 +109,9 @@ func handleMessage(ctx context.Context, message *models.Message) {
 			case "/clear_images":
 				handleClearImagesCommand(ctx, message)
 				return
+			case "/cleanup":
+				handleCleanupCommand(ctx, message)
+				return
 			}
 		}
 		return
@@ -239,12 +242,21 @@ func listCodeAgentsCommand(ctx context.Context, chatID int64) {
 		message += "\n"
 	}
 
-	// Add queue status
-	queueStatus := agentManager.GetQueueStatus()
-	if len(queueStatus) > 0 {
+	// Add detailed queue status
+	detailedQueueStatus := agentManager.GetDetailedQueueStatus()
+	if len(detailedQueueStatus) > 0 {
 		message += "\n📊 *Queued Tasks:*\n"
-		for folder, count := range queueStatus {
-			message += fmt.Sprintf("   📁 %s: %d task(s) waiting\n", folder, count)
+		for folder, tasks := range detailedQueueStatus {
+			message += fmt.Sprintf("\n📁 *%s* (%d tasks):\n", folder, len(tasks))
+			for i, task := range tasks {
+				// Truncate prompt if too long
+				prompt := task.Prompt
+				if len(prompt) > 60 {
+					prompt = prompt[:60] + "..."
+				}
+				message += fmt.Sprintf("   %d. 📝 %s\n", i+1, prompt)
+				message += fmt.Sprintf("      🆔 Queue ID: %s\n", task.QueueID)
+			}
 		}
 	}
 
@@ -748,6 +760,7 @@ func handleHelpCommand(ctx context.Context, message *models.Message) {
 			"• `/adduser <username> <user_id>` - Add authorized user\n" +
 			"• `/removeuser <username>` - Remove authorized user\n" +
 			"• `/users` - List all authorized users\n" +
+			"• `/cleanup` - Force cleanup of stuck finished agents\n" +
 			"• `/restart` - Restart bot with green deployment\n\n"
 	}
 
@@ -1999,14 +2012,39 @@ func handleImagesCommand(ctx context.Context, message *models.Message) {
 }
 
 func handleClearImagesCommand(ctx context.Context, message *models.Message) {
-	userID := AdminUserID
-	count := getPendingImageCount(userID)
-
-	if count == 0 {
-		SendMessage(ctx, b, message.Chat.ID, "📸 You have no pending images to clear.")
+	// Only admin can clear images
+	if message.From.ID != AdminUserID {
+		SendMessage(ctx, b, message.Chat.ID, "❌ Only admin can clear images.")
 		return
 	}
 
-	clearPendingImages(AdminUserID)
-	SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("🗑️ Cleared %d pending image(s).", count))
+	count := getPendingImageCount(AdminUserID)
+	if count > 0 {
+		clearPendingImages(AdminUserID)
+		SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("🗑️ Cleared %d pending image(s).", count))
+	} else {
+		SendMessage(ctx, b, message.Chat.ID, "📋 No pending images to clear.")
+	}
+}
+
+func handleCleanupCommand(ctx context.Context, message *models.Message) {
+	// Only admin can cleanup stuck agents
+	if message.From.ID != AdminUserID {
+		SendMessage(ctx, b, message.Chat.ID, "❌ Only admin can cleanup stuck agents.")
+		return
+	}
+
+	SendMessage(ctx, b, message.Chat.ID, "🔧 Starting cleanup of stuck agents...")
+
+	cleanedCount := ForceCleanupStuckAgents()
+
+	if cleanedCount > 0 {
+		SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("✅ Cleanup complete! Removed %d stuck agent(s).\n\n💡 Queued tasks should now start processing automatically.", cleanedCount))
+
+		// Show updated status
+		time.Sleep(1 * time.Second) // Give a moment for queue processing
+		listCodeAgentsCommand(ctx, message.Chat.ID)
+	} else {
+		SendMessage(ctx, b, message.Chat.ID, "📋 No stuck agents found. All agents are running normally.")
+	}
 }

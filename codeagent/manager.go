@@ -464,6 +464,23 @@ func (m *Manager) GetQueueStatus() map[string]int {
 	return status
 }
 
+// GetDetailedQueueStatus returns detailed information about all queued tasks
+func (m *Manager) GetDetailedQueueStatus() map[string][]QueuedTask {
+	m.queueMu.Lock()
+	defer m.queueMu.Unlock()
+
+	// Create a copy of the queue data to avoid holding the lock too long
+	detailedStatus := make(map[string][]QueuedTask)
+	for folder, queue := range m.folderQueues {
+		// Create a copy of the tasks
+		tasksCopy := make([]QueuedTask, len(queue))
+		copy(tasksCopy, queue)
+		detailedStatus[folder] = tasksCopy
+	}
+
+	return detailedStatus
+}
+
 // GetQueuedTasksForFolder returns the number of queued tasks for a specific folder
 func (m *Manager) GetQueuedTasksForFolder(folder string) int {
 	m.queueMu.Lock()
