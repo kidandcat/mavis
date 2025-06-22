@@ -119,6 +119,8 @@ func handleMessage(ctx context.Context, message *models.Message) {
 }
 
 func launchCodeAgentCommand(ctx context.Context, chatID int64, directory, task string) {
+	// Use AdminUserID for single-user app
+	chatID = AdminUserID
 	// Resolve the directory path relative to home directory
 	absDir, err := ResolvePath(directory)
 	if err != nil {
@@ -138,7 +140,7 @@ func launchCodeAgentCommand(ctx context.Context, chatID int64, directory, task s
 	}
 
 	// Check for pending images
-	pendingImages := getPendingImages(chatID)
+	pendingImages := getPendingImages(AdminUserID)
 	if len(pendingImages) > 0 {
 		// Append image information to the task
 		task += fmt.Sprintf("\n\nThe user has provided %d image(s) for this task:", len(pendingImages))
@@ -174,7 +176,7 @@ func launchCodeAgentCommand(ctx context.Context, chatID int64, directory, task s
 
 		// Register the queued agent for tracking
 		if queueID != "" {
-			queueTracker.RegisterQueuedAgent(queueID, chatID, absDir, task)
+			queueTracker.RegisterQueuedAgent(queueID, AdminUserID, absDir, task)
 		}
 
 		queuedTasks := agentManager.GetQueuedTasksForFolder(absDir)
@@ -183,17 +185,17 @@ func launchCodeAgentCommand(ctx context.Context, chatID int64, directory, task s
 
 		// Clear pending images even for queued agents
 		if len(pendingImages) > 0 {
-			clearPendingImages(chatID)
+			clearPendingImages(AdminUserID)
 		}
 		return
 	}
 
 	// Register the agent for this user to receive notifications
-	RegisterAgentForUser(agentID, chatID)
+	RegisterAgentForUser(agentID, AdminUserID)
 
 	// Clear pending images after using them
 	if len(pendingImages) > 0 {
-		clearPendingImages(chatID)
+		clearPendingImages(AdminUserID)
 	}
 
 	SendMessage(ctx, b, chatID, fmt.Sprintf("✅ Code agent launched!\n🆔 ID: `%s`\n📝 Task: %s\n📁 Directory: %s\n\nUse `/status %s` to check status.",
@@ -581,7 +583,7 @@ Task: %s`, task, task)
 	}
 
 	// Register the agent for this user to receive notifications
-	RegisterAgentForUser(agentID, chatID)
+	RegisterAgentForUser(agentID, AdminUserID)
 
 	SendMessage(ctx, b, chatID, fmt.Sprintf("✅ Git-aware code agent launched!\n🆔 ID: `%s`\n📝 Task: %s\n📁 Original Directory: %s\n📁 Working Directory: %s\n🌿 The agent will create a new branch and attempt to push changes\n\nUse `/status %s` to check status.",
 		agentID, task, directory, tempDir, agentID))
@@ -706,7 +708,7 @@ Task: %s`, branch, branch, branch, branch, branch, task, branch, branch, task)
 	}
 
 	// Register the agent for this user to receive notifications
-	RegisterAgentForUser(agentID, chatID)
+	RegisterAgentForUser(agentID, AdminUserID)
 
 	SendMessage(ctx, b, chatID, fmt.Sprintf("✅ Git-aware code agent launched for existing branch!\n🆔 ID: `%s`\n📝 Task: %s\n🌿 Branch: %s\n📁 Original Directory: %s\n📁 Working Directory: %s\n\nThe agent will work on the existing branch and attempt to push changes.\n\nUse `/status %s` to check status.",
 		agentID, task, branch, directory, tempDir, agentID))
@@ -989,7 +991,7 @@ PR URL: %s`, prURL, prURL, prURL, prURL, prURL)
 	}
 
 	// Register the agent for this user to receive notifications
-	RegisterAgentForUser(agentID, chatID)
+	RegisterAgentForUser(agentID, AdminUserID)
 
 	SendMessage(ctx, b, chatID, fmt.Sprintf("✅ PR review agent launched!\n🆔 ID: `%s`\n🔗 PR: %s\n📁 Repository: %s\n\nThe agent will:\n• Analyze the PR changes\n• Review code quality and bugs\n• Send the review to this Telegram chat\n\nUse `/status %s` to check status.",
 		agentID, prURL, directory, agentID))
@@ -1064,7 +1066,7 @@ Remember:
 	}
 
 	// Register the agent for this user to receive notifications
-	RegisterAgentForUser(agentID, chatID)
+	RegisterAgentForUser(agentID, AdminUserID)
 
 	SendMessage(ctx, b, chatID, fmt.Sprintf("✅ Pending changes review agent launched!\n🆔 ID: `%s`\n📁 Repository: %s\n\nThe agent will:\n• Check git status and diffs\n• Review code quality and bugs\n• Send the review to this Telegram chat\n\nUse `/status %s` to check status.",
 		agentID, directory, agentID))
@@ -1166,7 +1168,7 @@ PR URL: %s`, prURL, prURL, prURL, prURL, prURL, prURL)
 	}
 
 	// Register the agent for this user to receive notifications
-	RegisterAgentForUser(agentID, chatID)
+	RegisterAgentForUser(agentID, AdminUserID)
 
 	SendMessage(ctx, b, chatID, fmt.Sprintf("✅ PR review agent launched!\n🆔 ID: `%s`\n🔗 PR: %s\n📁 Repository: %s\n\nThe agent will:\n• Analyze the PR changes\n• Post a review comment on the PR\n• Approve the PR if it's ready to merge\n\nUse `/status %s` to check status.",
 		agentID, prURL, directory, agentID))
@@ -1619,7 +1621,7 @@ Your task: Review the changes, commit them with an appropriate message, and push
 	}
 
 	// Register the agent for this user to receive notifications
-	RegisterAgentForUser(agentID, chatID)
+	RegisterAgentForUser(agentID, AdminUserID)
 
 	SendMessage(ctx, b, chatID, fmt.Sprintf("✅ Commit agent launched!\n🆔 ID: `%s`\n📁 Directory: %s\n\nThe agent will:\n• Review uncommitted changes\n• Create a meaningful commit\n• Push to the remote repository\n\nUse `/status %s` to check status.",
 		agentID, directory, agentID))
@@ -1978,7 +1980,7 @@ func handleRestartCommand(ctx context.Context, message *models.Message) {
 }
 
 func handleImagesCommand(ctx context.Context, message *models.Message) {
-	userID := message.From.ID
+	userID := AdminUserID
 	pendingImages := getPendingImages(userID)
 
 	if len(pendingImages) == 0 {
@@ -1997,7 +1999,7 @@ func handleImagesCommand(ctx context.Context, message *models.Message) {
 }
 
 func handleClearImagesCommand(ctx context.Context, message *models.Message) {
-	userID := message.From.ID
+	userID := AdminUserID
 	count := getPendingImageCount(userID)
 
 	if count == 0 {
@@ -2005,6 +2007,6 @@ func handleClearImagesCommand(ctx context.Context, message *models.Message) {
 		return
 	}
 
-	clearPendingImages(userID)
+	clearPendingImages(AdminUserID)
 	SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("🗑️ Cleared %d pending image(s).", count))
 }

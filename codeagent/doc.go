@@ -35,4 +35,3 @@
 // The package is designed to be used by AI agents and tools, providing
 // a clean API for programmatic control of Claude code agents.
 package codeagent
-

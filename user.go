@@ -17,4 +17,3 @@ func UnregisterAgent(agentID string) {
 	defer agentUserMu.Unlock()
 	delete(agentUserMap, agentID)
 }
-

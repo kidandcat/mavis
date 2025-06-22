@@ -22,7 +22,13 @@ import (
 func SendMessage(ctx context.Context, b *bot.Bot, chatID int64, text string) {
 	// Add debug logging to track message sending
 	log.Printf("[SendMessage] Sending to chat %d, text length: %d, preview: %.50s...", chatID, len(text), text)
-	
+
+	// Handle nil bot for testing
+	if b == nil {
+		log.Printf("[SendMessage] Bot is nil, skipping message send (test mode)")
+		return
+	}
+
 	_, err := b.SendMessage(ctx, &bot.SendMessageParams{
 		Text:      bot.EscapeMarkdownUnescaped(text),
 		ChatID:    chatID,
@@ -293,4 +299,3 @@ func FindAvailablePort(startPort string) (string, error) {
 
 	return "", fmt.Errorf("no available port found in range %d-%d", port, port+99)
 }
-

@@ -127,4 +127,3 @@ func (au *AuthorizedUsers) ListUsers() map[string]int64 {
 	}
 	return users
 }
-

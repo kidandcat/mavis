@@ -114,4 +114,3 @@ func ExampleAgent_Kill() {
 	info, _ := manager.GetAgentInfo(agentID)
 	fmt.Printf("Agent status after kill: %s\n", info.Status)
 }
-

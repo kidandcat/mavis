@@ -86,10 +86,12 @@ func main() {
 
 	// Set callback for when queued agents start
 	agentManager.SetAgentStartCallback(func(agentID, folder, prompt, queueID string) {
+		log.Printf("[StartCallback] Called for agent %s, queueID: %s", agentID, queueID)
 		// Get the queued agent info to find the user
 		if queueInfo, exists := queueTracker.GetQueuedAgentInfo(queueID); exists {
 			// Register the agent for the user who queued it
 			RegisterAgentForUser(agentID, queueInfo.UserID)
+			log.Printf("[StartCallback] Successfully registered agent %s for user %d", agentID, queueInfo.UserID)
 
 			// Notify the user that their queued agent has started
 			SendMessage(ctx, b, queueInfo.UserID, fmt.Sprintf("🏃 Queued agent started!\n🆔 ID: `%s`\n📁 Directory: %s\n📝 Task: %s\n\nUse `/status %s` to check status.",
@@ -101,6 +103,7 @@ func main() {
 			log.Printf("Queued agent started: ID=%s, Folder=%s, User=%d", agentID, folder, queueInfo.UserID)
 		} else {
 			log.Printf("WARNING: Queued agent started but no queue info found: ID=%s, QueueID=%s", agentID, queueID)
+			log.Printf("WARNING: This agent will NOT receive completion notifications!")
 		}
 	})
 
@@ -176,7 +179,7 @@ func helloHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 }
 
 func handlePhotoMessage(ctx context.Context, message *models.Message) {
-	userID := message.From.ID
+	userID := AdminUserID
 
 	// Get the largest photo size
 	photo := message.Photo[len(message.Photo)-1]
@@ -198,7 +201,7 @@ func handlePhotoMessage(ctx context.Context, message *models.Message) {
 }
 
 func handleDocumentMessage(ctx context.Context, message *models.Message) {
-	userID := message.From.ID
+	userID := AdminUserID
 	doc := message.Document
 
 	// Check if it's an image file

@@ -6,6 +6,7 @@ package codeagent
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 )
@@ -113,14 +114,17 @@ func (m *Manager) createAndStartAgent(ctx context.Context, folder, prompt string
 
 // processQueueForFolder checks if there are queued tasks for a folder and starts the next one
 func (m *Manager) processQueueForFolder(folder string) {
+	log.Printf("[QueueProcessor] Processing queue for folder: %s", folder)
 	m.queueMu.Lock()
 
 	// Remove the current running agent for this folder
 	delete(m.runningPerFolder, folder)
+	log.Printf("[QueueProcessor] Removed running agent for folder %s", folder)
 
 	// Check if there are queued tasks
 	var taskToProcess *QueuedTask
 	if queue, exists := m.folderQueues[folder]; exists && len(queue) > 0 {
+		log.Printf("[QueueProcessor] Found %d queued tasks for folder %s", len(queue), folder)
 		// Get the next task
 		taskToProcess = &queue[0]
 		m.folderQueues[folder] = queue[1:]
@@ -129,12 +133,15 @@ func (m *Manager) processQueueForFolder(folder string) {
 		if len(m.folderQueues[folder]) == 0 {
 			delete(m.folderQueues, folder)
 		}
+	} else {
+		log.Printf("[QueueProcessor] No queued tasks for folder %s", folder)
 	}
 
 	m.queueMu.Unlock()
 
 	// Process the task outside of the queue lock to avoid deadlock
 	if taskToProcess != nil {
+		log.Printf("[QueueProcessor] Starting queued task for folder %s, QueueID: %s", folder, taskToProcess.QueueID)
 		// Start the queued task
 		id := m.createAndStartAgent(taskToProcess.Ctx, taskToProcess.Folder, taskToProcess.Prompt)
 
@@ -142,9 +149,11 @@ func (m *Manager) processQueueForFolder(folder string) {
 		m.queueMu.Lock()
 		m.runningPerFolder[folder] = id
 		m.queueMu.Unlock()
+		log.Printf("[QueueProcessor] Started agent %s for queued task in folder %s", id, folder)
 
 		// Call the callback if set
 		if m.startCallback != nil {
+			log.Printf("[QueueProcessor] Calling start callback for agent %s", id)
 			m.startCallback(id, taskToProcess.Folder, taskToProcess.Prompt, taskToProcess.QueueID)
 		}
 	}
@@ -301,15 +310,18 @@ func (m *Manager) KillAgent(id string) error {
 
 // RemoveAgent removes an agent from the manager
 func (m *Manager) RemoveAgent(id string) error {
+	log.Printf("[RemoveAgent] Attempting to remove agent %s", id)
 	m.mu.Lock()
 	agent, exists := m.agents[id]
 	if !exists {
 		m.mu.Unlock()
+		log.Printf("[RemoveAgent] Agent %s not found", id)
 		return fmt.Errorf("agent %s not found", id)
 	}
 
-	// Get agent status and check if it's running before releasing the lock
+	// Get agent status and folder before releasing the lock
 	status := agent.GetStatus()
+	agentFolder := agent.Folder // Get the folder directly from the agent
 
 	// Check if this agent was running for a folder
 	var folderToProcess string
@@ -322,6 +334,12 @@ func (m *Manager) RemoveAgent(id string) error {
 		}
 	}
 	m.queueMu.Unlock()
+
+	// If we didn't find the folder in runningPerFolder, use the agent's folder
+	if folderToProcess == "" && agentFolder != "" {
+		log.Printf("[RemoveAgent] Using agent's folder %s for queue processing", agentFolder)
+		folderToProcess = agentFolder
+	}
 
 	// Kill if running
 	if status == StatusRunning {
@@ -343,9 +361,13 @@ func (m *Manager) RemoveAgent(id string) error {
 
 	// Process queue for the folder if needed (after releasing main mutex)
 	if folderToProcess != "" {
+		log.Printf("[RemoveAgent] Processing queue for folder: %s", folderToProcess)
 		m.processQueueForFolder(folderToProcess)
+	} else {
+		log.Printf("[RemoveAgent] No folder to process queue for agent %s", id)
 	}
 
+	log.Printf("[RemoveAgent] Successfully removed agent %s", id)
 	return nil
 }
 

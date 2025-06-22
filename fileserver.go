@@ -46,7 +46,7 @@ func (fs *FileServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Convert URL path to filesystem path
 	fsPath := filepath.Join(fs.root, filepath.FromSlash(urlPath))
-	
+
 	// Log the resolved filesystem path
 	log.Printf("FileServer: Resolved to filesystem path: %s (root: %s)", fsPath, fs.root)
 
@@ -491,7 +491,7 @@ func getContentType(ext string) string {
 func StartFileServer(root string, port string) (*http.Server, error) {
 	// Create file server
 	fs := NewFileServer(root)
-	
+
 	log.Printf("StartFileServer: Starting file server on port %s, serving directory: %s", port, fs.root)
 
 	// Create HTTP server with longer timeouts for large files

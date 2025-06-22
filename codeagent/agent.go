@@ -6,6 +6,7 @@ package codeagent
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"strings"
@@ -63,6 +64,7 @@ func NewAgentWithPlanFile(id, folder, prompt, planFilename string) *Agent {
 
 // Start launches the agent
 func (a *Agent) Start(ctx context.Context) error {
+	log.Printf("[Agent] Starting agent %s in folder %s", a.ID, a.Folder)
 	// Set status to running
 	a.mu.Lock()
 	a.Status = StatusRunning
@@ -116,10 +118,14 @@ func (a *Agent) Start(ctx context.Context) error {
 	if err != nil {
 		a.Status = StatusFailed
 		a.Error = fmt.Sprintf("Command failed: %v\nOutput: %s\nDirectory: %s", err, string(output), a.Folder)
+		log.Printf("[Agent] Agent %s failed in folder %s: %v", a.ID, a.Folder, err)
 	} else {
 		a.Status = StatusFinished
+		log.Printf("[Agent] Agent %s finished successfully in folder %s", a.ID, a.Folder)
 	}
 	a.mu.Unlock()
+
+	log.Printf("[Agent] Agent %s completed with status %s, waiting for monitor to detect", a.ID, a.Status)
 
 	return nil
 }

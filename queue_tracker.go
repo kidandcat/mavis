@@ -30,7 +30,7 @@ var queueTracker = &QueueTracker{
 func (qt *QueueTracker) RegisterQueuedAgent(queueID string, userID int64, folder, prompt string) {
 	qt.mu.Lock()
 	defer qt.mu.Unlock()
-	
+
 	qt.queuedAgents[queueID] = QueuedAgentInfo{
 		QueueID: queueID,
 		UserID:  userID,
@@ -43,7 +43,7 @@ func (qt *QueueTracker) RegisterQueuedAgent(queueID string, userID int64, folder
 func (qt *QueueTracker) GetQueuedAgentInfo(queueID string) (QueuedAgentInfo, bool) {
 	qt.mu.RLock()
 	defer qt.mu.RUnlock()
-	
+
 	info, exists := qt.queuedAgents[queueID]
 	return info, exists
 }
@@ -52,7 +52,7 @@ func (qt *QueueTracker) GetQueuedAgentInfo(queueID string) (QueuedAgentInfo, boo
 func (qt *QueueTracker) RemoveQueuedAgent(queueID string) {
 	qt.mu.Lock()
 	defer qt.mu.Unlock()
-	
+
 	delete(qt.queuedAgents, queueID)
 }
 
@@ -60,13 +60,13 @@ func (qt *QueueTracker) RemoveQueuedAgent(queueID string) {
 func (qt *QueueTracker) GetQueuedAgentByFolder(folder string) []QueuedAgentInfo {
 	qt.mu.RLock()
 	defer qt.mu.RUnlock()
-	
+
 	var agents []QueuedAgentInfo
 	for _, info := range qt.queuedAgents {
 		if info.Folder == folder {
 			agents = append(agents, info)
 		}
 	}
-	
+
 	return agents
 }

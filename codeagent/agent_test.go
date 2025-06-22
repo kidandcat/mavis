@@ -148,4 +148,3 @@ func TestManagerAutoID(t *testing.T) {
 		t.Errorf("Failed to get agent 2: %v", err)
 	}
 }
-

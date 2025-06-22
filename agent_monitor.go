@@ -44,9 +44,13 @@ func MonitorAgentsProcess(ctx context.Context, b *bot.Bot) {
 		case <-ctx.Done():
 			return
 		case <-time.After(5 * time.Second): // Check every 5 seconds
+			// Log monitoring cycle start
+			log.Printf("[AgentMonitor] Starting monitoring cycle...")
 			agents := agentManager.ListAgents()
+			log.Printf("[AgentMonitor] Found %d agents to check", len(agents))
 
 			for _, agent := range agents {
+				log.Printf("[AgentMonitor] Checking agent %s, status: %s, notified: %v", agent.ID, agent.Status, notifiedAgents[agent.ID])
 				// Skip if we've already notified about this agent
 				if notifiedAgents[agent.ID] {
 					continue
@@ -64,6 +68,7 @@ func MonitorAgentsProcess(ctx context.Context, b *bot.Bot) {
 
 					if !exists {
 						// If we don't know who launched it, skip
+						log.Printf("[AgentMonitor] WARNING: No user found for agent %s, skipping notification", agent.ID)
 						continue
 					}
 
@@ -79,10 +84,11 @@ func MonitorAgentsProcess(ctx context.Context, b *bot.Bot) {
 					log.Printf("[AgentMonitor] Sent completion notification for agent %s to user %d", agent.ID, userID)
 
 					// Remove the agent from the manager now that notification is sent
+					log.Printf("[AgentMonitor] Attempting to remove agent %s from manager (folder: %s)", agent.ID, agent.Folder)
 					if err := agentManager.RemoveAgent(agent.ID); err != nil {
-						log.Printf("Failed to remove agent %s: %v", agent.ID, err)
+						log.Printf("[AgentMonitor] ERROR: Failed to remove agent %s: %v", agent.ID, err)
 					} else {
-						log.Printf("Removed agent %s after notification", agent.ID)
+						log.Printf("[AgentMonitor] Successfully removed agent %s after notification", agent.ID)
 					}
 				}
 			}
@@ -118,9 +124,9 @@ func formatAgentCompletionNotification(agent codeagent.AgentInfo) string {
 
 	// Check if this is a usage limit error
 	isUsageLimitError := false
-	if agent.Status == codeagent.StatusFailed && 
-		(strings.Contains(agent.Output, "Max usage limit reached") || 
-		 strings.Contains(agent.Error, "Max usage limit reached")) {
+	if agent.Status == codeagent.StatusFailed &&
+		(strings.Contains(agent.Output, "Max usage limit reached") ||
+			strings.Contains(agent.Error, "Max usage limit reached")) {
 		isUsageLimitError = true
 	}
 
@@ -199,20 +205,19 @@ func truncateString(s string, maxLen int) string {
 // formatTimeUntilReset calculates and formats the time until midnight UTC
 func formatTimeUntilReset() string {
 	now := time.Now().UTC()
-	
+
 	// Calculate next midnight UTC
 	nextMidnight := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
-	
+
 	// Calculate duration
 	duration := nextMidnight.Sub(now)
-	
+
 	// Format the duration in a human-readable way
 	hours := int(duration.Hours())
 	minutes := int(duration.Minutes()) % 60
-	
+
 	if hours > 0 {
 		return fmt.Sprintf("%d hours %d minutes", hours, minutes)
 	}
 	return fmt.Sprintf("%d minutes", minutes)
 }
-
