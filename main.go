@@ -122,10 +122,25 @@ func main() {
 	go RecoveryCheck(ctx, b)
 	go cleanupOldTempFiles(ctx)
 
+	// Start web server if enabled
+	webPort := os.Getenv("WEB_PORT")
+	if webPort != "" {
+		go func() {
+			log.Printf("Starting web server on port %s", webPort)
+			if err := StartWebServer(webPort); err != nil && err != http.ErrServerClosed {
+				log.Printf("Web server error: %v", err)
+			}
+		}()
+	}
+
 	// Send startup notification to admin
+	startupMsg := "🚀 Mavis ready"
+	if webPort != "" {
+		startupMsg += fmt.Sprintf("\n🌐 Web interface: http://localhost:%s", webPort)
+	}
 	_, err = b.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: AdminUserID,
-		Text:   "🚀 Mavis ready",
+		Text:   startupMsg,
 	})
 	if err != nil {
 		log.Printf("Failed to send startup notification: %v", err)

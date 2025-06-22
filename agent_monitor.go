@@ -78,19 +78,11 @@ func MonitorAgentsProcess(ctx context.Context, b *bot.Bot) {
 					agentUserMu.RUnlock()
 
 					if !exists {
-						// If we don't know who launched it, skip notification but still try to remove
-						log.Printf("[AgentMonitor] WARNING: No user found for agent %s, skipping notification but will try removal", agent.ID)
-						// Still try to remove the agent to prevent it from being stuck
-						log.Printf("[AgentMonitor] Attempting to remove orphaned agent %s from manager (folder: %s)", agent.ID, agent.Folder)
-						if err := agentManager.RemoveAgent(agent.ID); err != nil {
-							log.Printf("[AgentMonitor] ERROR: Failed to remove orphaned agent %s: %v", agent.ID, err)
-							failedRemovals[agent.ID] = true
-						} else {
-							log.Printf("[AgentMonitor] Successfully removed orphaned agent %s", agent.ID)
-							delete(failedRemovals, agent.ID)
-							delete(notifiedAgents, agent.ID)
-						}
-						continue
+						// If we don't know who launched it, assign it to admin user
+						log.Printf("[AgentMonitor] WARNING: No user found for agent %s, assigning to admin user", agent.ID)
+						RegisterAgentForUser(agent.ID, AdminUserID)
+						userID = AdminUserID
+						log.Printf("[AgentMonitor] Assigned orphaned agent %s to admin user (ID: %d)", agent.ID, AdminUserID)
 					}
 
 					// Mark as notified BEFORE sending to prevent any race condition
@@ -103,6 +95,17 @@ func MonitorAgentsProcess(ctx context.Context, b *bot.Bot) {
 						log.Printf("[AgentMonitor] Sending completion notification for agent %s, status: %s", agent.ID, agent.Status)
 						SendLongMessage(ctx, b, userID, notification)
 						log.Printf("[AgentMonitor] Sent completion notification for agent %s to user %d", agent.ID, userID)
+						
+						// Broadcast SSE event
+						eventType := "agent_completed"
+						if agent.Status == "failed" {
+							eventType = "agent_failed"
+						}
+						BroadcastSSEEvent(eventType, map[string]interface{}{
+							"agent_id": agent.ID,
+							"status": agent.Status,
+							"directory": agent.Folder,
+						})
 					} else {
 						log.Printf("[AgentMonitor] Skipping notification for agent %s (failed removal retry)", agent.ID)
 					}
@@ -404,21 +407,18 @@ func performRecoveryCheck(b *bot.Bot) {
 			log.Printf("[Recovery] WARNING: Running agent %s has no user association", agent.ID)
 			orphanedAgents++
 			
-			// Mark the agent as failed so it gets cleaned up
-			actualAgent, err := agentManager.GetAgent(agent.ID)
-			if err == nil {
-				actualAgent.MarkAsFailedWithDetails("Agent lost user association (detected by recovery check)")
-				log.Printf("[Recovery] Marked orphaned agent %s as failed", agent.ID)
-			}
+			// Assign the orphaned agent to the admin user
+			RegisterAgentForUser(agent.ID, AdminUserID)
+			log.Printf("[Recovery] Assigned orphaned agent %s to admin user (ID: %d)", agent.ID, AdminUserID)
 			
 			// Send notification to admin about the orphaned agent
 			if b != nil {
-				notification := fmt.Sprintf("⚠️ *Orphaned Agent Detected*\n\n"+
+				notification := fmt.Sprintf("⚠️ *Orphaned Agent Recovered*\n\n"+
 					"🆔 Agent ID: `%s`\n"+
 					"📁 Folder: %s\n"+
 					"📝 Task: %s\n"+
 					"🕐 Running since: %s\n\n"+
-					"This agent has no user association and has been marked as failed.",
+					"This agent had no user association and has been assigned to you.",
 					agent.ID, agent.Folder, truncateString(agent.Prompt, 100), 
 					agent.StartTime.Format("15:04:05"))
 				SendMessage(context.Background(), b, AdminUserID, notification)

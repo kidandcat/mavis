@@ -1,6 +1,6 @@
-# Mavis - AI-Powered Development Assistant for Telegram
+# Mavis - AI-Powered Development Assistant for Telegram & Web
 
-Mavis is a powerful Telegram bot that brings Claude AI directly to your development workflow. Launch autonomous AI agents to write code, manage git operations, review pull requests, and serve local projects on your LAN network - all through simple Telegram commands.
+Mavis is a powerful bot that brings Claude AI directly to your development workflow. Access it through Telegram commands or a modern web interface. Launch autonomous AI agents to write code, manage git operations, review pull requests, and serve local projects on your LAN network.
 
 ## 🚀 Features
 
@@ -37,6 +37,13 @@ Mavis is a powerful Telegram bot that brings Claude AI directly to your developm
 - **Security Notifications**: Real-time alerts for unauthorized access attempts
 - **Isolated Execution**: Each agent runs in its own secure environment
 
+### 🌐 Web Interface
+- **Modern Dashboard**: Real-time agent monitoring with live status updates
+- **Server-Sent Events (SSE)**: Instant notifications for agent events
+- **Full Feature Parity**: All Telegram commands available through web UI
+- **Responsive Design**: Works on desktop and mobile devices
+- **Concurrent Access**: Use both Telegram and web interface simultaneously
+
 ## 📋 Prerequisites
 
 - Go 1.20 or higher
@@ -63,6 +70,8 @@ go mod download
 cat > .env << EOF
 TELEGRAM_BOT_TOKEN=your_bot_token_here
 ADMIN_USER_ID=your_telegram_user_id
+WEB_PORT=8080  # Optional: Enable web interface
+WEB_PASSWORD=your_secure_password  # Optional: Web interface password
 EOF
 ```
 
@@ -118,6 +127,21 @@ Or use the continuous run script:
 
 ### ℹ️ General Commands
 - `/help` - Show comprehensive command documentation
+
+## 🌐 Web Interface
+
+If you've enabled the web interface by setting `WEB_PORT`, you can access Mavis through your browser:
+
+1. Open `http://localhost:8080` (or your configured port)
+2. Login with the password set in `WEB_PASSWORD`
+3. Access all Mavis features through the modern web UI:
+   - **Agent Dashboard**: Monitor all running and queued agents
+   - **Real-time Updates**: Get instant notifications via Server-Sent Events
+   - **File Browser**: Navigate and download project files
+   - **Git Operations**: View diffs and commit changes
+   - **System Management**: Manage users and bot settings
+
+The web interface provides the same functionality as Telegram commands with a more visual experience.
 
 ## 💡 Usage Examples
 

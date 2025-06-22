@@ -142,6 +142,14 @@ func launchCodeAgentCommand(ctx context.Context, chatID int64, directory, task s
 		}
 
 		queuedTasks := agentManager.GetQueuedTasksForFolder(absDir)
+		
+		// Broadcast SSE event for queue update
+		BroadcastSSEEvent("queue_update", map[string]interface{}{
+			"directory": absDir,
+			"queue_position": queuePos,
+			"total_queued": queuedTasks,
+		})
+		
 		SendMessage(ctx, b, chatID, fmt.Sprintf("⏳ Agent queued!\n📁 Directory: %s\n📝 Task: %s\n🔢 Queue position: %s\n📊 Total queued tasks for this folder: %d\n\nThe agent will start automatically when the current agent in this folder completes.",
 			directory, task, queuePos, queuedTasks))
 
@@ -159,6 +167,13 @@ func launchCodeAgentCommand(ctx context.Context, chatID int64, directory, task s
 	if len(pendingImages) > 0 {
 		clearPendingImages(AdminUserID)
 	}
+
+	// Broadcast SSE event
+	BroadcastSSEEvent("agent_started", map[string]interface{}{
+		"agent_id": agentID,
+		"directory": absDir,
+		"task": task,
+	})
 
 	SendMessage(ctx, b, chatID, fmt.Sprintf("✅ Code agent launched!\n🆔 ID: `%s`\n📝 Task: %s\n📁 Directory: %s\n\nUse `/status %s` to check status.",
 		agentID, task, directory, agentID))
