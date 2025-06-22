@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -248,6 +249,14 @@ func getCodeAgentDetailsCommand(ctx context.Context, chatID int64, agentID strin
 	if !agentInfo.EndTime.IsZero() {
 		message += fmt.Sprintf("🏁 Ended: %s\n", agentInfo.EndTime.Format("15:04:05"))
 		message += fmt.Sprintf("⏱️ Duration: %s\n", agentInfo.Duration.Round(time.Second))
+	}
+
+	// Check for CURRENT_PLAN.md in the agent's working directory
+	if agentInfo.Status == "running" {
+		planPath := filepath.Join(agentInfo.Folder, "CURRENT_PLAN.md")
+		if planContent, err := os.ReadFile(planPath); err == nil {
+			message += fmt.Sprintf("\n📋 *Current Plan:*\n```\n%s\n```", string(planContent))
+		}
 	}
 
 	// Add full output if available
