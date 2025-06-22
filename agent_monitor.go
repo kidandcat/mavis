@@ -11,8 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-telegram/bot"
 	"mavis/codeagent"
+
+	"github.com/go-telegram/bot"
 )
 
 // agentUserMap tracks which user launched which agent
@@ -35,6 +36,8 @@ func MonitorAgentsProcess(ctx context.Context, b *bot.Bot) {
 
 	// Keep track of agents we've already notified about
 	notifiedAgents := make(map[string]bool)
+	// Track agents that failed to be removed (for retry)
+	failedRemovals := make(map[string]bool)
 
 	// Log initial state
 	log.Printf("Agent monitor started. Checking agents every 5 seconds...")
@@ -50,11 +53,18 @@ func MonitorAgentsProcess(ctx context.Context, b *bot.Bot) {
 			log.Printf("[AgentMonitor] Found %d agents to check", len(agents))
 
 			for _, agent := range agents {
-				log.Printf("[AgentMonitor] Checking agent %s, status: %s, notified: %v", agent.ID, agent.Status, notifiedAgents[agent.ID])
-				// Skip if we've already notified about this agent
-				if notifiedAgents[agent.ID] {
+				runningDuration := ""
+				if !agent.StartTime.IsZero() {
+					runningDuration = fmt.Sprintf(", running for: %v", time.Since(agent.StartTime).Round(time.Second))
+				}
+				log.Printf("[AgentMonitor] Checking agent %s, status: %s, notified: %v%s", agent.ID, agent.Status, notifiedAgents[agent.ID], runningDuration)
+				// Skip if we've already notified about this agent (unless removal failed)
+				if notifiedAgents[agent.ID] && !failedRemovals[agent.ID] {
 					continue
 				}
+
+				// Note: Zombie process detection removed - agents use CombinedOutput()
+				// which runs synchronously, so they cannot become zombie processes
 
 				// Check if agent has completed (finished, failed, or killed)
 				if agent.Status == codeagent.StatusFinished ||
@@ -76,19 +86,22 @@ func MonitorAgentsProcess(ctx context.Context, b *bot.Bot) {
 					notifiedAgents[agent.ID] = true
 					log.Printf("[AgentMonitor] Marking agent %s as notified for user %d", agent.ID, userID)
 
-					// Send notification using SendLongMessage for full output
-					notification := formatAgentCompletionNotification(agent)
-					log.Printf("[AgentMonitor] Sending completion notification for agent %s, status: %s", agent.ID, agent.Status)
-					SendLongMessage(ctx, b, userID, notification)
-
-					log.Printf("[AgentMonitor] Sent completion notification for agent %s to user %d", agent.ID, userID)
+					// Send notification using SendLongMessage for full output (only if not retrying)
+					if !failedRemovals[agent.ID] {
+						notification := formatAgentCompletionNotification(agent)
+						log.Printf("[AgentMonitor] Sending completion notification for agent %s, status: %s", agent.ID, agent.Status)
+						SendLongMessage(ctx, b, userID, notification)
+						log.Printf("[AgentMonitor] Sent completion notification for agent %s to user %d", agent.ID, userID)
+					}
 
 					// Remove the agent from the manager now that notification is sent
 					log.Printf("[AgentMonitor] Attempting to remove agent %s from manager (folder: %s)", agent.ID, agent.Folder)
 					if err := agentManager.RemoveAgent(agent.ID); err != nil {
 						log.Printf("[AgentMonitor] ERROR: Failed to remove agent %s: %v", agent.ID, err)
+						failedRemovals[agent.ID] = true
 					} else {
 						log.Printf("[AgentMonitor] Successfully removed agent %s after notification", agent.ID)
+						delete(failedRemovals, agent.ID)
 					}
 				}
 			}

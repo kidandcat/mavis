@@ -117,7 +117,30 @@ func (a *Agent) Start(ctx context.Context) error {
 
 	if err != nil {
 		a.Status = StatusFailed
-		a.Error = fmt.Sprintf("Command failed: %v\nOutput: %s\nDirectory: %s", err, string(output), a.Folder)
+		// Create a detailed error message including command information and output
+		var errorBuilder strings.Builder
+		errorBuilder.WriteString(fmt.Sprintf("Command failed: %v", err))
+
+		if a.cmd.ProcessState != nil {
+			errorBuilder.WriteString(fmt.Sprintf("\nProcess State: %s", a.cmd.ProcessState.String()))
+			if a.cmd.ProcessState.ExitCode() >= 0 {
+				errorBuilder.WriteString(fmt.Sprintf("\nExit Code: %d", a.cmd.ProcessState.ExitCode()))
+			}
+		}
+
+		if len(a.cmd.Args) > 0 {
+			errorBuilder.WriteString(fmt.Sprintf("\nCommand: %s", strings.Join(a.cmd.Args, " ")))
+		}
+
+		errorBuilder.WriteString(fmt.Sprintf("\nWorking Directory: %s", a.Folder))
+
+		if string(output) != "" {
+			errorBuilder.WriteString(fmt.Sprintf("\nProcess Output:\n%s", string(output)))
+		}
+
+		errorBuilder.WriteString(fmt.Sprintf("\nFailure Time: %s", time.Now().Format("2006-01-02 15:04:05")))
+
+		a.Error = errorBuilder.String()
 		log.Printf("[Agent] Agent %s failed in folder %s: %v", a.ID, a.Folder, err)
 	} else {
 		a.Status = StatusFinished
@@ -220,6 +243,79 @@ func (a *Agent) ToInfo() AgentInfo {
 		EndTime:   a.EndTime,
 		Duration:  duration,
 	}
+}
+
+// IsProcessAlive checks if the agent's process is still running
+func (a *Agent) IsProcessAlive() bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if a.cmd == nil || a.cmd.Process == nil {
+		return false
+	}
+
+	// Try to send signal 0 to check if process exists
+	err := a.cmd.Process.Signal(nil)
+	return err == nil
+}
+
+// MarkAsFailed marks the agent as failed with the given error message
+func (a *Agent) MarkAsFailed(errorMsg string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	a.Status = StatusFailed
+	a.Error = errorMsg
+	if a.EndTime.IsZero() {
+		a.EndTime = time.Now()
+	}
+}
+
+// MarkAsFailedWithDetails marks the agent as failed and includes available process output and error details
+func (a *Agent) MarkAsFailedWithDetails(errorMsg string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	a.Status = StatusFailed
+	if a.EndTime.IsZero() {
+		a.EndTime = time.Now()
+	}
+
+	// Build detailed error message including process information
+	var detailedError strings.Builder
+	detailedError.WriteString(errorMsg)
+
+	// If we have a command and process, try to get additional details
+	if a.cmd != nil {
+		if a.cmd.ProcessState != nil {
+			detailedError.WriteString(fmt.Sprintf("\nProcess State: %s", a.cmd.ProcessState.String()))
+			if a.cmd.ProcessState.ExitCode() >= 0 {
+				detailedError.WriteString(fmt.Sprintf("\nExit Code: %d", a.cmd.ProcessState.ExitCode()))
+			}
+		}
+
+		// Include the command that was executed
+		if len(a.cmd.Args) > 0 {
+			detailedError.WriteString(fmt.Sprintf("\nCommand: %s", strings.Join(a.cmd.Args, " ")))
+		}
+
+		// Include working directory
+		if a.cmd.Dir != "" {
+			detailedError.WriteString(fmt.Sprintf("\nWorking Directory: %s", a.cmd.Dir))
+		} else {
+			detailedError.WriteString(fmt.Sprintf("\nWorking Directory: %s", a.Folder))
+		}
+	}
+
+	// Include any output we've captured so far
+	if a.Output != "" {
+		detailedError.WriteString(fmt.Sprintf("\nCaptured Output:\n%s", a.Output))
+	}
+
+	// Include timestamp
+	detailedError.WriteString(fmt.Sprintf("\nFailure Time: %s", time.Now().Format("2006-01-02 15:04:05")))
+
+	a.Error = detailedError.String()
 }
 
 // AgentInfo is a snapshot of an agent's state

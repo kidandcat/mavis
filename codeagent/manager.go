@@ -395,33 +395,6 @@ func (m *Manager) WaitForAgent(ctx context.Context, id string) (AgentInfo, error
 	}
 }
 
-// WaitForMultipleAgents waits for multiple agents to finish
-func (m *Manager) WaitForMultipleAgents(ctx context.Context, ids []string) ([]AgentInfo, error) {
-	var wg sync.WaitGroup
-	results := make([]AgentInfo, len(ids))
-	errors := make([]error, len(ids))
-
-	for i, id := range ids {
-		wg.Add(1)
-		go func(index int, agentID string) {
-			defer wg.Done()
-			info, err := m.WaitForAgent(ctx, agentID)
-			results[index] = info
-			errors[index] = err
-		}(i, id)
-	}
-
-	wg.Wait()
-
-	// Check for errors
-	for _, err := range errors {
-		if err != nil {
-			return results, err
-		}
-	}
-
-	return results, nil
-}
 
 // CleanupFinishedAgents removes all finished, failed, or killed agents
 func (m *Manager) CleanupFinishedAgents() int {
