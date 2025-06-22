@@ -290,3 +290,175 @@ func ForceCleanupStuckAgents() int {
 	log.Printf("[ForceCleanup] Cleanup complete. Removed %d stuck agents", cleanedCount)
 	return cleanedCount
 }
+
+// RecoveryCheck performs periodic checks for stuck agents and queues
+func RecoveryCheck(ctx context.Context, b *bot.Bot) {
+	log.Println("[Recovery] Starting recovery check process...")
+	
+	ticker := time.NewTicker(30 * time.Second) // Check every 30 seconds
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("[Recovery] Recovery check process stopped")
+			return
+		case <-ticker.C:
+			performRecoveryCheck(b)
+		}
+	}
+}
+
+// performRecoveryCheck does the actual recovery work
+func performRecoveryCheck(b *bot.Bot) {
+	log.Printf("[Recovery] Performing recovery check...")
+	
+	// 1. Check for agents marked as running but process is dead
+	agents := agentManager.ListAgents()
+	deadAgents := 0
+	
+	for _, agent := range agents {
+		if agent.Status == codeagent.StatusRunning {
+			// Check if the agent has been running for too long (e.g., > 30 minutes)
+			if !agent.StartTime.IsZero() && time.Since(agent.StartTime) > 30*time.Minute {
+				log.Printf("[Recovery] WARNING: Agent %s has been running for %v", agent.ID, time.Since(agent.StartTime))
+				
+				// Get the actual agent to check if process is alive
+				actualAgent, err := agentManager.GetAgent(agent.ID)
+				if err != nil {
+					log.Printf("[Recovery] ERROR: Failed to get agent %s: %v", agent.ID, err)
+					continue
+				}
+				
+				if !actualAgent.IsProcessAlive() {
+					log.Printf("[Recovery] DETECTED: Agent %s process is dead, marking as failed", agent.ID)
+					actualAgent.MarkAsFailedWithDetails("Process died unexpectedly (detected by recovery check)")
+					deadAgents++
+					
+					// The monitor will pick up the failed status and handle notification/removal
+				}
+			}
+		}
+	}
+	
+	if deadAgents > 0 {
+		log.Printf("[Recovery] Found %d dead agents", deadAgents)
+	}
+	
+	// 2. Check for folders with queues but no running agent
+	detailedQueueStatus := agentManager.GetDetailedQueueStatus()
+	stuckQueues := 0
+	
+	for folder, tasks := range detailedQueueStatus {
+		if len(tasks) > 0 {
+			// Check if there's a running agent for this folder
+			hasRunning, agentID := agentManager.IsAgentRunningInFolder(folder)
+			if !hasRunning {
+				log.Printf("[Recovery] WARNING: Folder %s has %d queued tasks but no running agent", folder, len(tasks))
+				stuckQueues++
+				
+				// Send notification about stuck queue
+				if b != nil && len(tasks) > 0 {
+					// Find user ID from first queued task
+					firstTask := tasks[0]
+					if queueInfo, exists := queueTracker.GetQueuedAgentInfo(firstTask.QueueID); exists {
+						notification := fmt.Sprintf("⚠️ *Stuck Queue Detected*\n\n"+
+							"📁 Folder: %s\n"+
+							"📊 Queued tasks: %d\n"+
+							"📝 First task: %s\n\n"+
+							"No agent is running in this folder. Attempting to process the queue...",
+							folder, len(tasks), truncateString(firstTask.Prompt, 100))
+						SendMessage(context.Background(), b, queueInfo.UserID, notification)
+					}
+				}
+				
+				// Try to process the queue for this folder
+				log.Printf("[Recovery] Attempting to process stuck queue for folder %s", folder)
+				agentManager.ProcessQueueForFolder(folder)
+			} else {
+				// Check if the running agent actually exists
+				if _, err := agentManager.GetAgent(agentID); err != nil {
+					log.Printf("[Recovery] ERROR: Folder %s claims agent %s is running but it doesn't exist", folder, agentID)
+					stuckQueues++
+					
+					// Clear the invalid running agent and process queue
+					log.Printf("[Recovery] Clearing invalid agent reference and processing queue for folder %s", folder)
+					agentManager.ProcessQueueForFolder(folder)
+				}
+			}
+		}
+	}
+	
+	if stuckQueues > 0 {
+		log.Printf("[Recovery] Found %d stuck queues", stuckQueues)
+	}
+	
+	// 3. Check for orphaned agents without user association
+	orphanedAgents := 0
+	for _, agent := range agents {
+		agentUserMu.RLock()
+		_, hasUser := agentUserMap[agent.ID]
+		agentUserMu.RUnlock()
+		
+		if !hasUser && agent.Status == codeagent.StatusRunning {
+			log.Printf("[Recovery] WARNING: Running agent %s has no user association", agent.ID)
+			orphanedAgents++
+			
+			// Mark the agent as failed so it gets cleaned up
+			actualAgent, err := agentManager.GetAgent(agent.ID)
+			if err == nil {
+				actualAgent.MarkAsFailedWithDetails("Agent lost user association (detected by recovery check)")
+				log.Printf("[Recovery] Marked orphaned agent %s as failed", agent.ID)
+			}
+			
+			// Send notification to admin about the orphaned agent
+			if b != nil {
+				notification := fmt.Sprintf("⚠️ *Orphaned Agent Detected*\n\n"+
+					"🆔 Agent ID: `%s`\n"+
+					"📁 Folder: %s\n"+
+					"📝 Task: %s\n"+
+					"🕐 Running since: %s\n\n"+
+					"This agent has no user association and has been marked as failed.",
+					agent.ID, agent.Folder, truncateString(agent.Prompt, 100), 
+					agent.StartTime.Format("15:04:05"))
+				SendMessage(context.Background(), b, AdminUserID, notification)
+			}
+		}
+	}
+	
+	if orphanedAgents > 0 {
+		log.Printf("[Recovery] Found %d orphaned agents", orphanedAgents)
+	}
+	
+	// 4. Clean up completed agents that have been around for too long
+	oldCompletedAgents := 0
+	for _, agent := range agents {
+		if (agent.Status == codeagent.StatusFinished ||
+			agent.Status == codeagent.StatusFailed ||
+			agent.Status == codeagent.StatusKilled) &&
+			!agent.EndTime.IsZero() &&
+			time.Since(agent.EndTime) > 1*time.Hour {
+			
+			log.Printf("[Recovery] Cleaning up old completed agent %s (ended %v ago)", agent.ID, time.Since(agent.EndTime))
+			if err := agentManager.RemoveAgent(agent.ID); err != nil {
+				log.Printf("[Recovery] ERROR: Failed to remove old agent %s: %v", agent.ID, err)
+			} else {
+				oldCompletedAgents++
+				
+				// Clean up tracking
+				agentUserMu.Lock()
+				delete(agentUserMap, agent.ID)
+				agentUserMu.Unlock()
+			}
+		}
+	}
+	
+	if oldCompletedAgents > 0 {
+		log.Printf("[Recovery] Cleaned up %d old completed agents", oldCompletedAgents)
+	}
+	
+	totalIssues := deadAgents + stuckQueues + orphanedAgents + oldCompletedAgents
+	if totalIssues > 0 {
+		log.Printf("[Recovery] Recovery check complete. Found and handled %d issues", totalIssues)
+	}
+}

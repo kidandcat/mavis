@@ -25,19 +25,23 @@ const (
 	StatusKilled   AgentStatus = "killed"
 )
 
+// CompletionCallback is called when an agent completes (successfully or with error)
+type CompletionCallback func(agent *Agent)
+
 // Agent represents a code agent instance
 type Agent struct {
-	ID           string
-	Folder       string
-	Prompt       string
-	Status       AgentStatus
-	Output       string
-	Error        string
-	StartTime    time.Time
-	EndTime      time.Time
-	cmd          *exec.Cmd
-	mu           sync.RWMutex
-	PlanFilename string // Custom plan filename (defaults to CURRENT_PLAN.md)
+	ID                 string
+	Folder             string
+	Prompt             string
+	Status             AgentStatus
+	Output             string
+	Error              string
+	StartTime          time.Time
+	EndTime            time.Time
+	cmd                *exec.Cmd
+	mu                 sync.RWMutex
+	PlanFilename       string             // Custom plan filename (defaults to CURRENT_PLAN.md)
+	completionCallback CompletionCallback // Called when agent completes
 }
 
 // NewAgent creates a new agent instance
@@ -60,6 +64,13 @@ func NewAgentWithPlanFile(id, folder, prompt, planFilename string) *Agent {
 		Status:       StatusPending,
 		PlanFilename: planFilename,
 	}
+}
+
+// SetCompletionCallback sets the callback to be called when the agent completes
+func (a *Agent) SetCompletionCallback(callback CompletionCallback) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.completionCallback = callback
 }
 
 // Start launches the agent
@@ -108,18 +119,88 @@ func (a *Agent) Start(ctx context.Context) error {
 	cmdString := fmt.Sprintf("cd '%s' && claude --dangerously-skip-permissions -p '%s'", a.Folder, escapedPrompt)
 	a.cmd = exec.CommandContext(ctx, "/bin/sh", "-c", cmdString)
 
-	// Capture output
-	output, err := a.cmd.CombinedOutput()
+	// Set up pipes for streaming output
+	stdout, err := a.cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+	stderr, err := a.cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stderr pipe: %w", err)
+	}
+
+	// Start the command
+	if err := a.cmd.Start(); err != nil {
+		a.mu.Lock()
+		a.Status = StatusFailed
+		a.Error = fmt.Sprintf("Failed to start command: %v", err)
+		a.EndTime = time.Now()
+		a.mu.Unlock()
+		return err
+	}
+
+	// Capture output in a thread-safe way
+	var outputBuilder strings.Builder
+	var outputMu sync.Mutex
+	
+	// Create a wait group for the output readers
+	var wg sync.WaitGroup
+	wg.Add(2)
+	
+	// Read stdout
+	go func() {
+		defer wg.Done()
+		buf := make([]byte, 4096)
+		for {
+			n, err := stdout.Read(buf)
+			if n > 0 {
+				outputMu.Lock()
+				outputBuilder.Write(buf[:n])
+				outputMu.Unlock()
+			}
+			if err != nil {
+				break
+			}
+		}
+	}()
+	
+	// Read stderr
+	go func() {
+		defer wg.Done()
+		buf := make([]byte, 4096)
+		for {
+			n, err := stderr.Read(buf)
+			if n > 0 {
+				outputMu.Lock()
+				outputBuilder.Write(buf[:n])
+				outputMu.Unlock()
+			}
+			if err != nil {
+				break
+			}
+		}
+	}()
+	
+	// Wait for the command to complete
+	cmdErr := a.cmd.Wait()
+	
+	// Wait for all output to be read
+	wg.Wait()
+	
+	// Get the final output
+	outputMu.Lock()
+	output := outputBuilder.String()
+	outputMu.Unlock()
 
 	a.mu.Lock()
-	a.Output = string(output)
+	a.Output = output
 	a.EndTime = time.Now()
 
-	if err != nil {
+	if cmdErr != nil {
 		a.Status = StatusFailed
 		// Create a detailed error message including command information and output
 		var errorBuilder strings.Builder
-		errorBuilder.WriteString(fmt.Sprintf("Command failed: %v", err))
+		errorBuilder.WriteString(fmt.Sprintf("Command failed: %v", cmdErr))
 
 		if a.cmd.ProcessState != nil {
 			errorBuilder.WriteString(fmt.Sprintf("\nProcess State: %s", a.cmd.ProcessState.String()))
@@ -134,14 +215,14 @@ func (a *Agent) Start(ctx context.Context) error {
 
 		errorBuilder.WriteString(fmt.Sprintf("\nWorking Directory: %s", a.Folder))
 
-		if string(output) != "" {
-			errorBuilder.WriteString(fmt.Sprintf("\nProcess Output:\n%s", string(output)))
+		if output != "" {
+			errorBuilder.WriteString(fmt.Sprintf("\nProcess Output:\n%s", output))
 		}
 
 		errorBuilder.WriteString(fmt.Sprintf("\nFailure Time: %s", time.Now().Format("2006-01-02 15:04:05")))
 
 		a.Error = errorBuilder.String()
-		log.Printf("[Agent] Agent %s failed in folder %s: %v", a.ID, a.Folder, err)
+		log.Printf("[Agent] Agent %s failed in folder %s: %v", a.ID, a.Folder, cmdErr)
 	} else {
 		a.Status = StatusFinished
 		log.Printf("[Agent] Agent %s finished successfully in folder %s", a.ID, a.Folder)
@@ -149,6 +230,12 @@ func (a *Agent) Start(ctx context.Context) error {
 	a.mu.Unlock()
 
 	log.Printf("[Agent] Agent %s completed with status %s, waiting for monitor to detect", a.ID, a.Status)
+
+	// Call completion callback if set
+	if a.completionCallback != nil {
+		log.Printf("[Agent] Calling completion callback for agent %s", a.ID)
+		a.completionCallback(a)
+	}
 
 	return nil
 }

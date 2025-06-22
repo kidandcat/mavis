@@ -82,6 +82,11 @@ func (m *Manager) LaunchAgent(ctx context.Context, folder, prompt string) (strin
 
 // createAndStartAgent is a helper that creates and starts an agent
 func (m *Manager) createAndStartAgent(ctx context.Context, folder, prompt string) string {
+	return m.createAndStartAgentWithQueueID(ctx, folder, prompt, "")
+}
+
+// createAndStartAgentWithQueueID is a helper that creates and starts an agent with optional queue ID
+func (m *Manager) createAndStartAgentWithQueueID(ctx context.Context, folder, prompt, queueID string) string {
 	m.mu.Lock()
 	var agentNum int
 	if len(m.availableIDs) > 0 {
@@ -98,6 +103,13 @@ func (m *Manager) createAndStartAgent(ctx context.Context, folder, prompt string
 
 	agent := NewAgent(id, folder, prompt)
 
+	// Set completion callback to ensure notifications are sent before queue processing
+	agent.SetCompletionCallback(func(a *Agent) {
+		log.Printf("[Manager] Agent %s completed with status %s", a.ID, a.GetStatus())
+		// The monitor will detect this completion and send notifications
+		// then call RemoveAgent which will trigger ProcessQueueForFolder
+	})
+
 	m.mu.Lock()
 	m.agents[id] = agent
 	m.mu.Unlock()
@@ -105,15 +117,16 @@ func (m *Manager) createAndStartAgent(ctx context.Context, folder, prompt string
 	// Start agent with completion callback
 	go func() {
 		agent.Start(ctx)
-		// Don't process queue immediately - let the monitor handle notification first
-		// The monitor will call RemoveAgent which will trigger processQueueForFolder
+		// The completion callback will be called when the agent finishes
+		// The monitor will handle notification and removal
 	}()
 
 	return id
 }
 
-// processQueueForFolder checks if there are queued tasks for a folder and starts the next one
-func (m *Manager) processQueueForFolder(folder string) {
+// ProcessQueueForFolder checks if there are queued tasks for a folder and starts the next one
+// This is now public to allow recovery mechanisms to trigger queue processing
+func (m *Manager) ProcessQueueForFolder(folder string) {
 	log.Printf("[QueueProcessor] Processing queue for folder: %s", folder)
 	m.queueMu.Lock()
 
@@ -142,8 +155,8 @@ func (m *Manager) processQueueForFolder(folder string) {
 	// Process the task outside of the queue lock to avoid deadlock
 	if taskToProcess != nil {
 		log.Printf("[QueueProcessor] Starting queued task for folder %s, QueueID: %s", folder, taskToProcess.QueueID)
-		// Start the queued task
-		id := m.createAndStartAgent(taskToProcess.Ctx, taskToProcess.Folder, taskToProcess.Prompt)
+		// Start the queued task with its queue ID
+		id := m.createAndStartAgentWithQueueID(taskToProcess.Ctx, taskToProcess.Folder, taskToProcess.Prompt, taskToProcess.QueueID)
 
 		// Update the running agent for this folder
 		m.queueMu.Lock()
@@ -170,6 +183,13 @@ func (m *Manager) LaunchAgentWithID(ctx context.Context, id, folder, prompt stri
 
 	agent := NewAgent(id, folder, prompt)
 
+	// Set completion callback to ensure notifications are sent before queue processing
+	agent.SetCompletionCallback(func(a *Agent) {
+		log.Printf("[Manager] Agent %s completed with status %s", a.ID, a.GetStatus())
+		// The monitor will detect this completion and send notifications
+		// then call RemoveAgent which will trigger ProcessQueueForFolder
+	})
+
 	m.mu.Lock()
 	m.agents[id] = agent
 	m.mu.Unlock()
@@ -182,8 +202,8 @@ func (m *Manager) LaunchAgentWithID(ctx context.Context, id, folder, prompt stri
 	// Start agent with completion callback for queue processing
 	go func() {
 		agent.Start(ctx)
-		// Don't process queue immediately - let the monitor handle notification first
-		// The monitor will call RemoveAgent which will trigger processQueueForFolder
+		// The completion callback will be called when the agent finishes
+		// The monitor will handle notification and removal
 	}()
 
 	return nil
@@ -228,6 +248,13 @@ func (m *Manager) LaunchAgentWithPlanFile(ctx context.Context, folder, prompt, p
 
 	agent := NewAgentWithPlanFile(id, folder, prompt, planFilename)
 
+	// Set completion callback to ensure notifications are sent before queue processing
+	agent.SetCompletionCallback(func(a *Agent) {
+		log.Printf("[Manager] Agent %s completed with status %s", a.ID, a.GetStatus())
+		// The monitor will detect this completion and send notifications
+		// then call RemoveAgent which will trigger ProcessQueueForFolder
+	})
+
 	m.mu.Lock()
 	m.agents[id] = agent
 	m.mu.Unlock()
@@ -240,8 +267,8 @@ func (m *Manager) LaunchAgentWithPlanFile(ctx context.Context, folder, prompt, p
 	// Start agent with completion callback for queue processing
 	go func() {
 		agent.Start(ctx)
-		// Don't process queue immediately - let the monitor handle notification first
-		// The monitor will call RemoveAgent which will trigger processQueueForFolder
+		// The completion callback will be called when the agent finishes
+		// The monitor will handle notification and removal
 	}()
 
 	return id, nil
@@ -362,7 +389,7 @@ func (m *Manager) RemoveAgent(id string) error {
 	// Process queue for the folder if needed (after releasing main mutex)
 	if folderToProcess != "" {
 		log.Printf("[RemoveAgent] Processing queue for folder: %s", folderToProcess)
-		m.processQueueForFolder(folderToProcess)
+		m.ProcessQueueForFolder(folderToProcess)
 	} else {
 		log.Printf("[RemoveAgent] No folder to process queue for agent %s", id)
 	}

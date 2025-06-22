@@ -119,6 +119,7 @@ func main() {
 	// Code agent commands are handled in handleMessage function
 
 	go MonitorAgentsProcess(ctx, b)
+	go RecoveryCheck(ctx, b)
 	go cleanupOldTempFiles(ctx)
 
 	// Send startup notification to admin

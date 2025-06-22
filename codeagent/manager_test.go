@@ -228,7 +228,7 @@ func TestProcessQueueForFolderDirectly(t *testing.T) {
 	manager.queueMu.Unlock()
 
 	// Process the queue
-	manager.processQueueForFolder(testFolder)
+	manager.ProcessQueueForFolder(testFolder)
 
 	// Wait for processing
 	time.Sleep(200 * time.Millisecond)
