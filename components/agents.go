@@ -33,7 +33,7 @@ func AgentsSection(agents []AgentStatus) g.Node {
 			h.Div(h.Class("section-header"),
 				h.H2(g.Text("Active Agents")),
 				h.Button(
-					h.Class("btn btn-primary"),
+					h.Class("btn btn-primary ms-3"),
 					g.Attr("onclick", "showCreateAgentModal()"),
 					g.Text("+ New Agent"),
 				),

@@ -78,34 +78,15 @@ func GitCommitForm() g.Node {
 			h.ID("git-commit-form"),
 			g.Attr("onsubmit", "submitGitCommit(event); return false;"),
 
-			h.Div(h.Class("form-group"),
-				h.Label(h.For("commit-message"), g.Text("Commit Message")),
-				h.Textarea(
-					h.ID("commit-message"),
-					h.Name("message"),
-					h.Rows("3"),
-					h.Required(),
-					h.Placeholder("Enter commit message..."),
-				),
-			),
-
-			h.Div(h.Class("form-group checkbox-group"),
-				h.Label(
-					h.Input(
-						h.Type("checkbox"),
-						h.Name("push"),
-						h.Value("true"),
-						h.Checked(),
-					),
-					g.Text(" Push to remote after commit"),
-				),
+			h.Div(h.Class("form-info"),
+				h.P(g.Text("The AI will analyze your changes and create an appropriate commit message.")),
 			),
 
 			h.Div(h.Class("form-actions"),
 				h.Button(
 					h.Type("submit"),
 					h.Class("btn btn-primary"),
-					g.Text("Commit & Push"),
+					g.Text("Launch AI Commit"),
 				),
 			),
 		),

@@ -10,7 +10,6 @@ import (
 	"github.com/go-telegram/bot/models"
 )
 
-
 func handleRestartCommand(ctx context.Context, message *models.Message) {
 	// Only admin can restart the bot
 	if message.From.ID != AdminUserID {

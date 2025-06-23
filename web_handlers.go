@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -200,19 +201,19 @@ func handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
-		
+
 		// Return queued agent info
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"ID":           agentID,
-			"Task":         req.Task,
-			"Status":       "queued",
+			"ID":            agentID,
+			"Task":          req.Task,
+			"Status":        "queued",
 			"QueuePosition": queuePos,
-			"StartTime":    time.Now(),
-			"LastActive":   time.Now(),
-			"MessagesSent": 0,
-			"QueueStatus":  fmt.Sprintf("Position %s", queuePos),
-			"IsStale":      false,
+			"StartTime":     time.Now(),
+			"LastActive":    time.Now(),
+			"MessagesSent":  0,
+			"QueueStatus":   fmt.Sprintf("Position %s", queuePos),
+			"IsStale":       false,
 		})
 		return
 	}
@@ -254,9 +255,7 @@ func handleGitCommit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Message string `json:"message"`
-		Folder  string `json:"folder"`
-		Push    bool   `json:"push"`
+		Folder string `json:"folder"`
 	}
 
 	if r.Header.Get("Content-Type") == "application/json" {
@@ -265,30 +264,51 @@ func handleGitCommit(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		req.Message = r.FormValue("message")
 		req.Folder = r.FormValue("folder")
-		req.Push = r.FormValue("push") == "true"
-	}
-
-	if req.Message == "" {
-		http.Error(w, "Commit message is required", http.StatusBadRequest)
-		return
 	}
 
 	if req.Folder == "" {
 		req.Folder = "."
 	}
 
-	// Use commitAndPush which handles both commit and push based on the flag
-	output, err := commitAndPush(req.Folder, req.Message)
+	// Resolve the directory path
+	absDir, err := ResolvePath(req.Folder)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Error resolving directory path: %v", err)})
 		return
 	}
 
+	// Check if directory exists
+	info, err := os.Stat(absDir)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Directory not found: %s", absDir)})
+		return
+	}
+	if !info.IsDir() {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Path is not a directory: %s", absDir)})
+		return
+	}
+
+	// Check if it's a git repository
+	gitDir := filepath.Join(absDir, ".git")
+	if _, err := os.Stat(gitDir); os.IsNotExist(err) {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Directory is not a git repository: %s", absDir)})
+		return
+	}
+
+	// Launch the commit agent
+	ctx := context.Background()
+	launchCommitAgent(ctx, req.Folder)
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"output": output})
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Commit agent launched for directory: %s. The AI will review changes and create an appropriate commit.", req.Folder),
+	})
 }
 
 func handleWebRunCommand(w http.ResponseWriter, r *http.Request) {
@@ -349,7 +369,6 @@ func handleWebRunCommand(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"output": output})
 }
-
 
 func handleImageUpload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
@@ -413,7 +432,7 @@ func handleWebRestart(w http.ResponseWriter, r *http.Request) {
 	// Send success response before restarting
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
-		"status": "restarting",
+		"status":  "restarting",
 		"message": "Mavis is restarting...",
 	})
 
