@@ -38,7 +38,11 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 			// Return file listing as JSON
 			dir := r.URL.Query().Get("path")
 			if dir == "" {
-				dir = "/"
+				// Default to user's home directory
+				dir = os.Getenv("HOME")
+				if dir == "" {
+					dir = "/"
+				}
 			}
 			files, err := listFilesNew(dir)
 			if err != nil {
@@ -78,7 +82,11 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 	case "/files":
 		dir := r.URL.Query().Get("path")
 		if dir == "" {
-			dir = "/"
+			// Default to user's home directory
+			dir = os.Getenv("HOME")
+			if dir == "" {
+				dir = "/"
+			}
 		}
 		filesRaw, _ := listFilesNew(dir)
 		// Convert to components.FileInfo
