@@ -77,10 +77,7 @@ func main() {
 		log.Fatal("Failed to create data directory:", err)
 	}
 
-	// Initialize authorization system
-	if err := InitAuthorization(); err != nil {
-		log.Fatal("Failed to initialize authorization system:", err)
-	}
+	// User store and authorization removed - single user mode
 
 	// Initialize code agent manager
 	agentManager = codeagent.NewManager()
@@ -109,7 +106,7 @@ func main() {
 	})
 
 	// Create bot with custom error handler
-	b, err = bot.New(telegramBotToken, 
+	b, err = bot.New(telegramBotToken,
 		bot.WithDefaultHandler(handler),
 		bot.WithErrorsHandler(handleBotError))
 	if err != nil {
@@ -147,7 +144,7 @@ func main() {
 	}
 
 	log.Println("Ready")
-	
+
 	// Start bot with error handling
 	if err := startBotWithErrorHandling(ctx); err != nil {
 		log.Printf("[TGBOT] [ERROR] Bot stopped with error: %v", err)
@@ -158,11 +155,11 @@ func handleBotError(err error) {
 	if err == nil {
 		return
 	}
-	
+
 	errStr := err.Error()
 	// Check if it's the specific conflict error
-	if contains(errStr, "error get updates") && contains(errStr, "conflict") && 
-	   contains(errStr, "Conflict: terminated by other getUpdates request") {
+	if contains(errStr, "error get updates") && contains(errStr, "conflict") &&
+		contains(errStr, "Conflict: terminated by other getUpdates request") {
 		log.Printf("[TGBOT] [ERROR] %s", errStr)
 		// Send danger message
 		ctx := context.Background()
@@ -170,7 +167,7 @@ func handleBotError(err error) {
 		// Do nothing else - the bot will handle this error internally
 		return
 	}
-	
+
 	// Log other errors
 	log.Printf("[TGBOT] [ERROR] Bot error: %v", err)
 }
@@ -178,19 +175,19 @@ func handleBotError(err error) {
 func startBotWithErrorHandling(ctx context.Context) error {
 	// Use a channel to capture panic from bot.Start
 	errChan := make(chan error, 1)
-	
+
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
 				errChan <- fmt.Errorf("bot panicked: %v", r)
 			}
 		}()
-		
+
 		// Start the bot
 		b.Start(ctx)
 		errChan <- nil
 	}()
-	
+
 	// Monitor for errors
 	for {
 		select {
@@ -218,7 +215,7 @@ func sendDangerMessage(ctx context.Context, message string) {
 		"════════════════════════════════════════════════\n"+
 		"%s\n"+
 		"════════════════════════════════════════════════\n", message)
-	
+
 	// If we can, try to send via bot (might fail)
 	if b != nil {
 		_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
@@ -230,26 +227,11 @@ func sendDangerMessage(ctx context.Context, message string) {
 
 func handler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	if update.Message != nil {
-		// Check if user is authorized
-		if !authorizedUsers.IsAuthorized(update.Message.From.ID) {
-			// Notify admin about unauthorized access attempt
-			username := update.Message.From.Username
-			if username == "" {
-				username = fmt.Sprintf("%s %s", update.Message.From.FirstName, update.Message.From.LastName)
-			}
-
-			adminNotification := fmt.Sprintf("⚠️ *Unauthorized Access Attempt*\n\n"+
-				"👤 User: %s\n"+
-				"🆔 User ID: `%d`\n"+
-				"💬 Message: %s\n\n"+
-				"To authorize this user, use:\n`/adduser %s %d`",
-				username, update.Message.From.ID, update.Message.Text, username, update.Message.From.ID)
-
-			SendMessage(ctx, b, AdminUserID, adminNotification)
-
+		// Check if user is the authorized admin
+		if update.Message.From.ID != AdminUserID {
 			// Send message to unauthorized user
 			SendMessage(ctx, b, update.Message.Chat.ID,
-				"❌ You are not authorized to use this bot. The admin has been notified of your request.")
+				"❌ You are not authorized to use this bot.")
 			return
 		}
 

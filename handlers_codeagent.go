@@ -27,11 +27,11 @@ func handleCodeCommand(ctx context.Context, message *models.Message) {
 	task := strings.Join(parts[2:], " ")
 
 	// Call the existing launch function
-	launchCodeAgentCommand(ctx, message.Chat.ID, directory, task)
+	launchCodeAgentCommand(ctx, directory, task)
 }
 
 func handleAgentsCommand(ctx context.Context, message *models.Message) {
-	listCodeAgentsCommand(ctx, message.Chat.ID)
+	listCodeAgentsCommand(ctx)
 }
 
 func handleStatusCommand(ctx context.Context, message *models.Message) {
@@ -43,7 +43,7 @@ func handleStatusCommand(ctx context.Context, message *models.Message) {
 	}
 
 	agentID := parts[1]
-	getCodeAgentDetailsCommand(ctx, message.Chat.ID, agentID)
+	getCodeAgentDetailsCommand(ctx, agentID)
 }
 
 func handleStopCommand(ctx context.Context, message *models.Message) {
@@ -55,7 +55,7 @@ func handleStopCommand(ctx context.Context, message *models.Message) {
 	}
 
 	agentID := parts[1]
-	killCodeAgentCommand(ctx, message.Chat.ID, agentID)
+	killCodeAgentCommand(ctx, agentID)
 }
 
 func handleCleanupCommand(ctx context.Context, message *models.Message) {
@@ -74,15 +74,15 @@ func handleCleanupCommand(ctx context.Context, message *models.Message) {
 
 		// Show updated status
 		time.Sleep(1 * time.Second) // Give a moment for queue processing
-		listCodeAgentsCommand(ctx, message.Chat.ID)
+		listCodeAgentsCommand(ctx)
 	} else {
 		SendMessage(ctx, b, message.Chat.ID, "📋 No stuck agents found. All agents are running normally.")
 	}
 }
 
-func launchCodeAgentCommand(ctx context.Context, chatID int64, directory, task string) {
+func launchCodeAgentCommand(ctx context.Context, directory, task string) {
 	// Use AdminUserID for single-user app
-	chatID = AdminUserID
+	chatID := AdminUserID
 	// Resolve the directory path relative to home directory
 	absDir, err := ResolvePath(directory)
 	if err != nil {
@@ -132,7 +132,13 @@ func launchCodeAgentCommand(ctx context.Context, chatID int64, directory, task s
 			if parts[i] == "pos" && i+1 < len(parts) {
 				queuePos = parts[i+1]
 			} else if parts[i] == "qid" && i+1 < len(parts) {
-				queueID = parts[i+1]
+				// The queue ID includes everything after "qid-"
+				queueIDParts := []string{}
+				for j := i + 1; j < len(parts); j++ {
+					queueIDParts = append(queueIDParts, parts[j])
+				}
+				queueID = strings.Join(queueIDParts, "-")
+				break
 			}
 		}
 
@@ -142,14 +148,14 @@ func launchCodeAgentCommand(ctx context.Context, chatID int64, directory, task s
 		}
 
 		queuedTasks := agentManager.GetQueuedTasksForFolder(absDir)
-		
+
 		// Broadcast SSE event for queue update
 		BroadcastSSEEvent("queue_update", map[string]interface{}{
-			"directory": absDir,
+			"directory":      absDir,
 			"queue_position": queuePos,
-			"total_queued": queuedTasks,
+			"total_queued":   queuedTasks,
 		})
-		
+
 		SendMessage(ctx, b, chatID, fmt.Sprintf("⏳ Agent queued!\n📁 Directory: %s\n📝 Task: %s\n🔢 Queue position: %s\n📊 Total queued tasks for this folder: %d\n\nThe agent will start automatically when the current agent in this folder completes.",
 			directory, task, queuePos, queuedTasks))
 
@@ -170,16 +176,17 @@ func launchCodeAgentCommand(ctx context.Context, chatID int64, directory, task s
 
 	// Broadcast SSE event
 	BroadcastSSEEvent("agent_started", map[string]interface{}{
-		"agent_id": agentID,
+		"agent_id":  agentID,
 		"directory": absDir,
-		"task": task,
+		"task":      task,
 	})
 
 	SendMessage(ctx, b, chatID, fmt.Sprintf("✅ Code agent launched!\n🆔 ID: `%s`\n📝 Task: %s\n📁 Directory: %s\n\nUse `/status %s` to check status.",
 		agentID, task, directory, agentID))
 }
 
-func listCodeAgentsCommand(ctx context.Context, chatID int64) {
+func listCodeAgentsCommand(ctx context.Context) {
+	chatID := AdminUserID
 	agents := agentManager.ListAgents()
 
 	if len(agents) == 0 {
@@ -237,7 +244,8 @@ func listCodeAgentsCommand(ctx context.Context, chatID int64) {
 	SendMessage(ctx, b, chatID, message)
 }
 
-func getCodeAgentDetailsCommand(ctx context.Context, chatID int64, agentID string) {
+func getCodeAgentDetailsCommand(ctx context.Context, agentID string) {
+	chatID := AdminUserID
 	agentInfo, err := agentManager.GetAgentInfo(agentID)
 	if err != nil {
 		SendMessage(ctx, b, chatID, fmt.Sprintf("❌ Agent not found: %s", agentID))
@@ -288,7 +296,8 @@ func getCodeAgentDetailsCommand(ctx context.Context, chatID int64, agentID strin
 	SendLongMessage(ctx, b, chatID, message)
 }
 
-func killCodeAgentCommand(ctx context.Context, chatID int64, agentID string) {
+func killCodeAgentCommand(ctx context.Context, agentID string) {
+	chatID := AdminUserID
 	err := agentManager.KillAgent(agentID)
 	if err != nil {
 		SendMessage(ctx, b, chatID, fmt.Sprintf("❌ Failed to stop agent: %v", err))

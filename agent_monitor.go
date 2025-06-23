@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"sync"
 	"time"
 
 	"mavis/codeagent"
@@ -16,18 +15,12 @@ import (
 	"github.com/go-telegram/bot"
 )
 
-// agentUserMap tracks which user launched which agent
-var (
-	agentUserMap = make(map[string]int64) // agentID -> userID
-	agentUserMu  sync.RWMutex
-)
+// Single-user mode - no need for agent-user mapping
 
-// RegisterAgentForUser associates an agent with the user who launched it
+// RegisterAgentForUser - no longer needed in single-user mode
 func RegisterAgentForUser(agentID string, userID int64) {
-	agentUserMu.Lock()
-	defer agentUserMu.Unlock()
-	agentUserMap[agentID] = userID
-	log.Printf("Registered agent %s for user %d", agentID, userID)
+	// No-op in single-user mode
+	log.Printf("Agent %s started (single-user mode)", agentID)
 }
 
 // MonitorAgentsProcess continuously monitors agents and sends notifications when they complete
@@ -72,18 +65,8 @@ func MonitorAgentsProcess(ctx context.Context, b *bot.Bot) {
 					agent.Status == codeagent.StatusFailed ||
 					agent.Status == codeagent.StatusKilled {
 
-					// Find the user who launched this agent
-					agentUserMu.RLock()
-					userID, exists := agentUserMap[agent.ID]
-					agentUserMu.RUnlock()
-
-					if !exists {
-						// If we don't know who launched it, assign it to admin user
-						log.Printf("[AgentMonitor] WARNING: No user found for agent %s, assigning to admin user", agent.ID)
-						RegisterAgentForUser(agent.ID, AdminUserID)
-						userID = AdminUserID
-						log.Printf("[AgentMonitor] Assigned orphaned agent %s to admin user (ID: %d)", agent.ID, AdminUserID)
-					}
+					// In single-user mode, all agents belong to AdminUserID
+					userID := AdminUserID
 
 					// Mark as notified BEFORE sending to prevent any race condition
 					notifiedAgents[agent.ID] = true
@@ -91,20 +74,31 @@ func MonitorAgentsProcess(ctx context.Context, b *bot.Bot) {
 
 					// Send notification using SendLongMessage for full output (only if not retrying)
 					if !failedRemovals[agent.ID] {
-						notification := formatAgentCompletionNotification(agent)
+						notification := formatAgentCompletionNotification(agent, userID)
 						log.Printf("[AgentMonitor] Sending completion notification for agent %s, status: %s", agent.ID, agent.Status)
-						SendLongMessage(ctx, b, userID, notification)
-						log.Printf("[AgentMonitor] Sent completion notification for agent %s to user %d", agent.ID, userID)
-						
-						// Broadcast SSE event
+
+						// For web users (userID 0), send to admin's Telegram
+						telegramUserID := userID
+						if userID == 0 {
+							telegramUserID = AdminUserID
+							log.Printf("[AgentMonitor] Web-launched agent %s, sending notification to admin (ID: %d)", agent.ID, AdminUserID)
+						}
+
+						SendLongMessage(ctx, b, telegramUserID, notification)
+						log.Printf("[AgentMonitor] Sent completion notification for agent %s to user %d", agent.ID, telegramUserID)
+
+						// Always broadcast SSE event for web interface
 						eventType := "agent_completed"
 						if agent.Status == "failed" {
 							eventType = "agent_failed"
 						}
 						BroadcastSSEEvent(eventType, map[string]interface{}{
-							"agent_id": agent.ID,
-							"status": agent.Status,
-							"directory": agent.Folder,
+							"agent_id":     agent.ID,
+							"status":       agent.Status,
+							"directory":    agent.Folder,
+							"output":       agent.Output, // Include full output
+							"error":        agent.Error,  // Include error if any
+							"notification": notification, // Include formatted notification
 						})
 					} else {
 						log.Printf("[AgentMonitor] Skipping notification for agent %s (failed removal retry)", agent.ID)
@@ -122,10 +116,8 @@ func MonitorAgentsProcess(ctx context.Context, b *bot.Bot) {
 						delete(failedRemovals, agent.ID)
 						delete(notifiedAgents, agent.ID) // Clear notification flag since agent is removed
 
-						// Clean up user tracking immediately
-						agentUserMu.Lock()
-						delete(agentUserMap, agent.ID)
-						agentUserMu.Unlock()
+						// Clean up tracking immediately
+						UnregisterAgent(agent.ID)
 						log.Printf("[AgentMonitor] Cleaned up tracking for agent %s", agent.ID)
 					}
 				}
@@ -146,9 +138,7 @@ func MonitorAgentsProcess(ctx context.Context, b *bot.Bot) {
 					if !found {
 						// Agent no longer exists, clean up
 						delete(notifiedAgents, agentID)
-						agentUserMu.Lock()
-						delete(agentUserMap, agentID)
-						agentUserMu.Unlock()
+						UnregisterAgent(agentID)
 					}
 				}
 			}
@@ -157,7 +147,7 @@ func MonitorAgentsProcess(ctx context.Context, b *bot.Bot) {
 }
 
 // formatAgentCompletionNotification creates a formatted notification message for agent completion
-func formatAgentCompletionNotification(agent codeagent.AgentInfo) string {
+func formatAgentCompletionNotification(agent codeagent.AgentInfo, userID int64) string {
 	var sb strings.Builder
 
 	// Check if this is a usage limit error
@@ -191,6 +181,9 @@ func formatAgentCompletionNotification(agent codeagent.AgentInfo) string {
 	sb.WriteString(fmt.Sprintf("%s *Code Agent Completed*\n\n", statusEmoji))
 	sb.WriteString(fmt.Sprintf("🆔 ID: `%s`\n", agent.ID))
 	sb.WriteString(fmt.Sprintf("📊 Status: %s\n", statusText))
+	if userID == 0 {
+		sb.WriteString("🌐 Source: Web Interface\n")
+	}
 	sb.WriteString(fmt.Sprintf("📝 Task: %s\n", truncateString(agent.Prompt, 100)))
 	sb.WriteString(fmt.Sprintf("📁 Directory: %s\n", agent.Folder))
 
@@ -283,9 +276,7 @@ func ForceCleanupStuckAgents() int {
 				cleanedCount++
 
 				// Clean up tracking
-				agentUserMu.Lock()
-				delete(agentUserMap, agent.ID)
-				agentUserMu.Unlock()
+				UnregisterAgent(agent.ID)
 			}
 		}
 	}
@@ -297,10 +288,10 @@ func ForceCleanupStuckAgents() int {
 // RecoveryCheck performs periodic checks for stuck agents and queues
 func RecoveryCheck(ctx context.Context, b *bot.Bot) {
 	log.Println("[Recovery] Starting recovery check process...")
-	
+
 	ticker := time.NewTicker(30 * time.Second) // Check every 30 seconds
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -315,43 +306,43 @@ func RecoveryCheck(ctx context.Context, b *bot.Bot) {
 // performRecoveryCheck does the actual recovery work
 func performRecoveryCheck(b *bot.Bot) {
 	log.Printf("[Recovery] Performing recovery check...")
-	
+
 	// 1. Check for agents marked as running but process is dead
 	agents := agentManager.ListAgents()
 	deadAgents := 0
-	
+
 	for _, agent := range agents {
 		if agent.Status == codeagent.StatusRunning {
 			// Check if the agent has been running for too long (e.g., > 30 minutes)
 			if !agent.StartTime.IsZero() && time.Since(agent.StartTime) > 30*time.Minute {
 				log.Printf("[Recovery] WARNING: Agent %s has been running for %v", agent.ID, time.Since(agent.StartTime))
-				
+
 				// Get the actual agent to check if process is alive
 				actualAgent, err := agentManager.GetAgent(agent.ID)
 				if err != nil {
 					log.Printf("[Recovery] ERROR: Failed to get agent %s: %v", agent.ID, err)
 					continue
 				}
-				
+
 				if !actualAgent.IsProcessAlive() {
 					log.Printf("[Recovery] DETECTED: Agent %s process is dead, marking as failed", agent.ID)
 					actualAgent.MarkAsFailedWithDetails("Process died unexpectedly (detected by recovery check)")
 					deadAgents++
-					
+
 					// The monitor will pick up the failed status and handle notification/removal
 				}
 			}
 		}
 	}
-	
+
 	if deadAgents > 0 {
 		log.Printf("[Recovery] Found %d dead agents", deadAgents)
 	}
-	
+
 	// 2. Check for folders with queues but no running agent
 	detailedQueueStatus := agentManager.GetDetailedQueueStatus()
 	stuckQueues := 0
-	
+
 	for folder, tasks := range detailedQueueStatus {
 		if len(tasks) > 0 {
 			// Check if there's a running agent for this folder
@@ -359,7 +350,7 @@ func performRecoveryCheck(b *bot.Bot) {
 			if !hasRunning {
 				log.Printf("[Recovery] WARNING: Folder %s has %d queued tasks but no running agent", folder, len(tasks))
 				stuckQueues++
-				
+
 				// Send notification about stuck queue
 				if b != nil && len(tasks) > 0 {
 					// Find user ID from first queued task
@@ -374,7 +365,7 @@ func performRecoveryCheck(b *bot.Bot) {
 						SendMessage(context.Background(), b, queueInfo.UserID, notification)
 					}
 				}
-				
+
 				// Try to process the queue for this folder
 				log.Printf("[Recovery] Attempting to process stuck queue for folder %s", folder)
 				agentManager.ProcessQueueForFolder(folder)
@@ -383,7 +374,7 @@ func performRecoveryCheck(b *bot.Bot) {
 				if _, err := agentManager.GetAgent(agentID); err != nil {
 					log.Printf("[Recovery] ERROR: Folder %s claims agent %s is running but it doesn't exist", folder, agentID)
 					stuckQueues++
-					
+
 					// Clear the invalid running agent and process queue
 					log.Printf("[Recovery] Clearing invalid agent reference and processing queue for folder %s", folder)
 					agentManager.ProcessQueueForFolder(folder)
@@ -391,26 +382,25 @@ func performRecoveryCheck(b *bot.Bot) {
 			}
 		}
 	}
-	
+
 	if stuckQueues > 0 {
 		log.Printf("[Recovery] Found %d stuck queues", stuckQueues)
 	}
-	
+
 	// 3. Check for orphaned agents without user association
 	orphanedAgents := 0
 	for _, agent := range agents {
-		agentUserMu.RLock()
-		_, hasUser := agentUserMap[agent.ID]
-		agentUserMu.RUnlock()
-		
+		// In single-user mode, all agents have a user
+		hasUser := true
+
 		if !hasUser && agent.Status == codeagent.StatusRunning {
 			log.Printf("[Recovery] WARNING: Running agent %s has no user association", agent.ID)
 			orphanedAgents++
-			
+
 			// Assign the orphaned agent to the admin user
 			RegisterAgentForUser(agent.ID, AdminUserID)
 			log.Printf("[Recovery] Assigned orphaned agent %s to admin user (ID: %d)", agent.ID, AdminUserID)
-			
+
 			// Send notification to admin about the orphaned agent
 			if b != nil {
 				notification := fmt.Sprintf("⚠️ *Orphaned Agent Recovered*\n\n"+
@@ -419,17 +409,17 @@ func performRecoveryCheck(b *bot.Bot) {
 					"📝 Task: %s\n"+
 					"🕐 Running since: %s\n\n"+
 					"This agent had no user association and has been assigned to you.",
-					agent.ID, agent.Folder, truncateString(agent.Prompt, 100), 
+					agent.ID, agent.Folder, truncateString(agent.Prompt, 100),
 					agent.StartTime.Format("15:04:05"))
 				SendMessage(context.Background(), b, AdminUserID, notification)
 			}
 		}
 	}
-	
+
 	if orphanedAgents > 0 {
 		log.Printf("[Recovery] Found %d orphaned agents", orphanedAgents)
 	}
-	
+
 	// 4. Clean up completed agents that have been around for too long
 	oldCompletedAgents := 0
 	for _, agent := range agents {
@@ -438,25 +428,23 @@ func performRecoveryCheck(b *bot.Bot) {
 			agent.Status == codeagent.StatusKilled) &&
 			!agent.EndTime.IsZero() &&
 			time.Since(agent.EndTime) > 1*time.Hour {
-			
+
 			log.Printf("[Recovery] Cleaning up old completed agent %s (ended %v ago)", agent.ID, time.Since(agent.EndTime))
 			if err := agentManager.RemoveAgent(agent.ID); err != nil {
 				log.Printf("[Recovery] ERROR: Failed to remove old agent %s: %v", agent.ID, err)
 			} else {
 				oldCompletedAgents++
-				
+
 				// Clean up tracking
-				agentUserMu.Lock()
-				delete(agentUserMap, agent.ID)
-				agentUserMu.Unlock()
+				UnregisterAgent(agent.ID)
 			}
 		}
 	}
-	
+
 	if oldCompletedAgents > 0 {
 		log.Printf("[Recovery] Cleaned up %d old completed agents", oldCompletedAgents)
 	}
-	
+
 	totalIssues := deadAgents + stuckQueues + orphanedAgents + oldCompletedAgents
 	if totalIssues > 0 {
 		log.Printf("[Recovery] Recovery check complete. Found and handled %d issues", totalIssues)

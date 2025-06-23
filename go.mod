@@ -9,4 +9,8 @@ require (
 	github.com/joho/godotenv v1.5.1
 )
 
-require golang.org/x/sync v0.0.0-20210220032951-036812b2e83c // indirect
+require (
+	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c // indirect
+	maragu.dev/gomponents v1.1.0 // indirect
+	maragu.dev/gomponents-htmx v0.6.1 // indirect
+)

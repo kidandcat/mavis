@@ -422,7 +422,6 @@ func (m *Manager) WaitForAgent(ctx context.Context, id string) (AgentInfo, error
 	}
 }
 
-
 // CleanupFinishedAgents removes all finished, failed, or killed agents
 func (m *Manager) CleanupFinishedAgents() int {
 	m.mu.Lock()

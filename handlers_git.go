@@ -36,10 +36,11 @@ func handleGitCodeCommand(ctx context.Context, message *models.Message) {
 		return
 	}
 
-	launchGitCodeAgent(ctx, message.Chat.ID, directory, task)
+	launchGitCodeAgent(ctx, directory, task)
 }
 
-func launchGitCodeAgent(ctx context.Context, chatID int64, directory, task string) {
+func launchGitCodeAgent(ctx context.Context, directory, task string) {
+	chatID := AdminUserID
 	// Resolve the directory path relative to home directory
 	absDir, err := ResolvePath(directory)
 	if err != nil {
@@ -140,10 +141,11 @@ func handleGitBranchCommand(ctx context.Context, message *models.Message) {
 		return
 	}
 
-	launchGitBranchAgent(ctx, message.Chat.ID, directory, branch, task)
+	launchGitBranchAgent(ctx, directory, branch, task)
 }
 
-func launchGitBranchAgent(ctx context.Context, chatID int64, directory, branch, task string) {
+func launchGitBranchAgent(ctx context.Context, directory, branch, task string) {
+	chatID := AdminUserID
 	// Resolve the directory path relative to home directory
 	absDir, err := ResolvePath(directory)
 	if err != nil {
@@ -263,10 +265,11 @@ func handleCommitCommand(ctx context.Context, message *models.Message) {
 		return
 	}
 
-	launchCommitAgent(ctx, message.Chat.ID, directory)
+	launchCommitAgent(ctx, directory)
 }
 
-func launchCommitAgent(ctx context.Context, chatID int64, directory string) {
+func launchCommitAgent(ctx context.Context, directory string) {
+	chatID := AdminUserID
 	// Resolve the directory path relative to home directory
 	absDir, err := ResolvePath(directory)
 	if err != nil {
@@ -358,7 +361,7 @@ func handleDiffCommand(ctx context.Context, message *models.Message) {
 	// Determine if it's a file or directory
 	if !info.IsDir() {
 		// Handle single file diff
-		handleFileDiff(ctx, message.Chat.ID, absPath, path)
+		handleFileDiff(ctx, absPath, path)
 		return
 	}
 
@@ -455,7 +458,7 @@ func handleDiffCommand(ctx context.Context, message *models.Message) {
 	for _, file := range staged {
 		if !processedFiles[file] {
 			processedFiles[file] = true
-			sendGitDiff(ctx, message.Chat.ID, absPath, file, true)
+			sendGitDiff(ctx, absPath, file, true)
 			time.Sleep(100 * time.Millisecond) // Small delay to avoid rate limiting
 		}
 	}
@@ -464,7 +467,7 @@ func handleDiffCommand(ctx context.Context, message *models.Message) {
 	for _, file := range modified {
 		if !processedFiles[file] {
 			processedFiles[file] = true
-			sendGitDiff(ctx, message.Chat.ID, absPath, file, false)
+			sendGitDiff(ctx, absPath, file, false)
 			time.Sleep(100 * time.Millisecond) // Small delay to avoid rate limiting
 		}
 	}
@@ -480,7 +483,8 @@ func handleDiffCommand(ctx context.Context, message *models.Message) {
 }
 
 // handleFileDiff handles diff for a single file
-func handleFileDiff(ctx context.Context, chatID int64, absPath, displayPath string) {
+func handleFileDiff(ctx context.Context, absPath, displayPath string) {
+	chatID := AdminUserID
 	// Get the directory and filename
 	dir := filepath.Dir(absPath)
 	filename := filepath.Base(absPath)
@@ -517,11 +521,12 @@ func handleFileDiff(ctx context.Context, chatID int64, absPath, displayPath stri
 	staged := status[0] == 'A' || status[0] == 'M'
 
 	// Send the diff
-	sendGitDiff(ctx, chatID, dir, filename, staged)
+	sendGitDiff(ctx, dir, filename, staged)
 }
 
 // sendGitDiff sends the git diff for a specific file
-func sendGitDiff(ctx context.Context, chatID int64, repoDir, filename string, staged bool) {
+func sendGitDiff(ctx context.Context, repoDir, filename string, staged bool) {
+	chatID := AdminUserID
 	var cmd *exec.Cmd
 	if staged {
 		// For staged files, use --cached
@@ -606,7 +611,7 @@ func handleReviewCommand(ctx context.Context, message *models.Message) {
 
 	// If only directory is provided, review pending changes
 	if len(parts) == 2 {
-		launchPendingChangesReviewAgent(ctx, message.Chat.ID, directory)
+		launchPendingChangesReviewAgent(ctx, directory)
 		return
 	}
 
@@ -617,10 +622,11 @@ func handleReviewCommand(ctx context.Context, message *models.Message) {
 		return
 	}
 
-	launchPRReviewAgent(ctx, message.Chat.ID, directory, prURL)
+	launchPRReviewAgent(ctx, directory, prURL)
 }
 
-func launchPRReviewAgent(ctx context.Context, chatID int64, directory, prURL string) {
+func launchPRReviewAgent(ctx context.Context, directory, prURL string) {
+	chatID := AdminUserID
 	// Resolve the directory path relative to home directory
 	absDir, err := ResolvePath(directory)
 	if err != nil {
@@ -695,7 +701,8 @@ PR URL: %s`, prURL, prURL, prURL, prURL, prURL)
 		agentID, prURL, directory, agentID))
 }
 
-func launchPendingChangesReviewAgent(ctx context.Context, chatID int64, directory string) {
+func launchPendingChangesReviewAgent(ctx context.Context, directory string) {
+	chatID := AdminUserID
 	// Resolve the directory path relative to home directory
 	absDir, err := ResolvePath(directory)
 	if err != nil {

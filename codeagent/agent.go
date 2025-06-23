@@ -142,11 +142,11 @@ func (a *Agent) Start(ctx context.Context) error {
 	// Capture output in a thread-safe way
 	var outputBuilder strings.Builder
 	var outputMu sync.Mutex
-	
+
 	// Create a wait group for the output readers
 	var wg sync.WaitGroup
 	wg.Add(2)
-	
+
 	// Read stdout
 	go func() {
 		defer wg.Done()
@@ -163,7 +163,7 @@ func (a *Agent) Start(ctx context.Context) error {
 			}
 		}
 	}()
-	
+
 	// Read stderr
 	go func() {
 		defer wg.Done()
@@ -180,13 +180,13 @@ func (a *Agent) Start(ctx context.Context) error {
 			}
 		}
 	}()
-	
+
 	// Wait for the command to complete
 	cmdErr := a.cmd.Wait()
-	
+
 	// Wait for all output to be read
 	wg.Wait()
-	
+
 	// Get the final output
 	outputMu.Lock()
 	output := outputBuilder.String()

@@ -67,15 +67,6 @@ func handleMessage(ctx context.Context, message *models.Message) {
 			case "/mkdir":
 				handleMkdirCommand(ctx, message)
 				return
-			case "/adduser":
-				handleAddUserCommand(ctx, message)
-				return
-			case "/removeuser":
-				handleRemoveUserCommand(ctx, message)
-				return
-			case "/users":
-				handleUsersCommand(ctx, message)
-				return
 			case "/commit":
 				handleCommitCommand(ctx, message)
 				return

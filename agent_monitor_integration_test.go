@@ -45,7 +45,7 @@ exit 0`
 	// Wait for agent to complete
 	ctx2, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	agentInfo, err := agentManager.WaitForAgent(ctx2, agentID)
 	if err != nil {
 		// Check if agent was already removed

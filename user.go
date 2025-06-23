@@ -4,16 +4,12 @@
 package main
 
 // GetUserForAgent returns the chat ID of the user who should be notified about an agent
+// In single-user mode, this always returns the AdminUserID
 func GetUserForAgent(agentID string) (int64, bool) {
-	agentUserMu.RLock()
-	defer agentUserMu.RUnlock()
-	chatID, exists := agentUserMap[agentID]
-	return chatID, exists
+	return AdminUserID, true
 }
 
-// UnregisterAgent removes an agent from the notification map
+// UnregisterAgent - no longer needed in single-user mode
 func UnregisterAgent(agentID string) {
-	agentUserMu.Lock()
-	defer agentUserMu.Unlock()
-	delete(agentUserMap, agentID)
+	// No-op in single-user mode
 }

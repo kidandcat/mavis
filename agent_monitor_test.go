@@ -327,7 +327,7 @@ func TestFormatAgentCompletionNotification(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			notification := formatAgentCompletionNotification(tt.agent)
+			notification := formatAgentCompletionNotification(tt.agent, 12345)
 
 			for _, expected := range tt.contains {
 				if !contains(notification, expected) {

@@ -24,7 +24,7 @@ func TestQueueToAgentTransition(t *testing.T) {
 
 	// Create a manager
 	manager := codeagent.NewManager()
-	
+
 	// Track which agents started from queue
 	startedAgents := make(map[string]bool)
 	queueToAgent := make(map[string]string) // queueID -> agentID
@@ -51,12 +51,12 @@ func TestQueueToAgentTransition(t *testing.T) {
 	if err != nil {
 		t.Fatal("Failed to queue second agent:", err)
 	}
-	
+
 	// Verify second agent is queued
 	if !isQueuedID(agent2ID) {
 		t.Fatalf("Expected second agent to be queued, got ID: %s", agent2ID)
 	}
-	
+
 	// Extract queue ID from the queued response
 	queueID := extractQueueID(agent2ID)
 	t.Logf("Second agent queued with ID: %s, QueueID: %s", agent2ID, queueID)
@@ -64,12 +64,12 @@ func TestQueueToAgentTransition(t *testing.T) {
 	// Wait for first agent to complete
 	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	
+
 	firstInfo, err := manager.WaitForAgent(waitCtx, agent1ID)
 	if err != nil {
 		t.Fatal("Failed to wait for first agent:", err)
 	}
-	
+
 	if firstInfo.Status != codeagent.StatusFinished {
 		t.Fatalf("First agent did not finish successfully: %s", firstInfo.Status)
 	}
@@ -95,8 +95,8 @@ func TestQueueToAgentTransition(t *testing.T) {
 		t.Fatal("Failed to get agent info:", err)
 	}
 
-	if agentInfo.Status != codeagent.StatusRunning && 
-	   agentInfo.Status != codeagent.StatusFinished {
+	if agentInfo.Status != codeagent.StatusRunning &&
+		agentInfo.Status != codeagent.StatusFinished {
 		t.Fatalf("Expected agent to be running or finished, got: %s", agentInfo.Status)
 	}
 
@@ -114,7 +114,7 @@ func TestMultipleQueuedAgents(t *testing.T) {
 
 	// Create a manager
 	manager := codeagent.NewManager()
-	
+
 	// Track agent starts
 	var startOrder []string
 	manager.SetAgentStartCallback(func(agentID, folder, prompt, queueID string) {
@@ -172,7 +172,7 @@ func TestQueuedAgentFailure(t *testing.T) {
 
 	// Create a manager
 	manager := codeagent.NewManager()
-	
+
 	// Track agent starts
 	agentStarted := false
 	manager.SetAgentStartCallback(func(agentID, folder, prompt, queueID string) {
@@ -195,7 +195,7 @@ func TestQueuedAgentFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal("Failed to queue second agent:", err)
 	}
-	
+
 	if !isQueuedID(agent2ID) {
 		t.Fatalf("Expected second agent to be queued, got: %s", agent2ID)
 	}
@@ -208,7 +208,7 @@ func TestQueuedAgentFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal("Failed to get agent1 info:", err)
 	}
-	
+
 	if agent1Info.Status != codeagent.StatusFailed {
 		t.Fatalf("Expected first agent to fail, got: %s", agent1Info.Status)
 	}
