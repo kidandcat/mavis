@@ -28,21 +28,34 @@ func safeSubstring(s string, maxLen int) string {
 }
 
 func AgentsSection(agents []AgentStatus) g.Node {
-	return h.Div(h.ID("agents-section"), h.Class("section"),
-		h.Div(h.Class("section-header"),
-			h.H2(g.Text("Active Agents")),
-			h.Button(
-				h.Class("btn btn-primary"),
-				g.Attr("onclick", "showCreateAgentModal()"),
-				g.Text("+ New Agent"),
+	return h.Div(h.ID("agents-section"), h.Class("section agents-container"),
+		h.Div(h.Class("agents-panel"),
+			h.Div(h.Class("section-header"),
+				h.H2(g.Text("Active Agents")),
+				h.Button(
+					h.Class("btn btn-primary"),
+					g.Attr("onclick", "showCreateAgentModal()"),
+					g.Text("+ New Agent"),
+				),
+			),
+			h.Div(h.ID("agents-grid"), h.Class("agents-grid"),
+				g.Group(g.Map(agents, func(agent AgentStatus) g.Node {
+					return AgentCard(agent)
+				})),
+			),
+			CreateAgentModal(),
+		),
+		h.Div(h.ID("agent-status-panel"), h.Class("agent-status-panel"),
+			h.Div(h.Class("status-panel-header"),
+				h.H3(g.Text("Agent Status")),
+				h.Span(h.Class("status-panel-subtitle"), g.Text("Select an agent to view status")),
+			),
+			h.Div(h.ID("agent-status-content"), h.Class("agent-status-content"),
+				h.Div(h.Class("status-placeholder"),
+					h.P(g.Text("No agent selected")),
+				),
 			),
 		),
-		h.Div(h.ID("agents-grid"), h.Class("agents-grid"),
-			g.Group(g.Map(agents, func(agent AgentStatus) g.Node {
-				return AgentCard(agent)
-			})),
-		),
-		CreateAgentModal(),
 	)
 }
 
@@ -58,6 +71,7 @@ func AgentCard(agent AgentStatus) g.Node {
 		h.ID(fmt.Sprintf("agent-%s", agent.ID)),
 		h.Class("agent-card "+statusClass),
 		g.Attr("data-agent-id", agent.ID),
+		g.Attr("onclick", fmt.Sprintf("selectAgent('%s')", agent.ID)),
 
 		h.Div(h.Class("agent-header"),
 			h.H3(g.Text(fmt.Sprintf("Agent %s", safeSubstring(agent.ID, 8)))),
@@ -84,15 +98,10 @@ func AgentCard(agent AgentStatus) g.Node {
 		),
 
 		h.Div(h.Class("agent-actions"),
-			h.Button(
-				h.Class("btn btn-sm"),
-				g.Attr("onclick", fmt.Sprintf("viewAgentStatus('%s')", agent.ID)),
-				g.Text("View Status"),
-			),
 			g.If(agent.Status == "active",
 				h.Button(
 					h.Class("btn btn-sm btn-danger"),
-					g.Attr("onclick", fmt.Sprintf("stopAgent('%s')", agent.ID)),
+					g.Attr("onclick", fmt.Sprintf("event.stopPropagation(); stopAgent('%s')", agent.ID)),
 					g.Text("Stop"),
 				),
 			),
@@ -128,7 +137,7 @@ func CreateAgentModal() g.Node {
 						h.Type("text"),
 						h.ID("work_dir"),
 						h.Name("work_dir"),
-						h.Placeholder("/path/to/directory"),
+						h.Placeholder("Leave empty for current dir or use . or /absolute/path"),
 					),
 				),
 

@@ -63,7 +63,13 @@ func listFilesNew(dir string) ([]FileInfo, error) {
 		dir = "."
 	}
 
-	files, err := os.ReadDir(dir)
+	// Use ResolvePath to ensure paths are resolved from home directory
+	resolvedDir, err := ResolvePath(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	files, err := os.ReadDir(resolvedDir)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +94,6 @@ type FileInfo struct {
 	Mode  string `json:"mode"`
 }
 
-
 func getAgentByID(agentID string) *AgentStatusInfo {
 	agents := GetAllAgentsStatusJSON()
 	for _, agent := range agents {
@@ -105,12 +110,48 @@ func getAgentStatus(agentID string) string {
 		return ""
 	}
 
+	// Get more detailed status from agent manager
+	agentDetails, err := agentManager.GetAgent(agentID)
+	if err != nil || agentDetails == nil {
+		// Fall back to basic status
+		var status strings.Builder
+		status.WriteString(fmt.Sprintf("Agent ID: %s\n", agent.ID))
+		status.WriteString(fmt.Sprintf("Task: %s\n", agent.Task))
+		status.WriteString(fmt.Sprintf("Status: %s\n", agent.Status))
+		status.WriteString(fmt.Sprintf("Started: %s\n", agent.StartTime.Format("15:04:05")))
+		status.WriteString(fmt.Sprintf("Messages Sent: %d\n", agent.MessagesSent))
+
+		if agent.IsStale {
+			status.WriteString("\n⚠️  WARNING: This agent appears to be stale\n")
+		}
+		return status.String()
+	}
+
 	var status strings.Builder
-	status.WriteString(fmt.Sprintf("Agent ID: %s\n", agent.ID))
-	status.WriteString(fmt.Sprintf("Task: %s\n", agent.Task))
-	status.WriteString(fmt.Sprintf("Status: %s\n", agent.Status))
-	status.WriteString(fmt.Sprintf("Started: %s\n", agent.StartTime.Format("15:04:05")))
-	status.WriteString(fmt.Sprintf("Messages Sent: %d\n", agent.MessagesSent))
+	status.WriteString(fmt.Sprintf("Agent ID: %s\n", agentDetails.ID))
+	status.WriteString(fmt.Sprintf("Task: %s\n", agentDetails.Prompt))
+	status.WriteString(fmt.Sprintf("Status: %s\n", agentDetails.Status))
+	status.WriteString(fmt.Sprintf("Directory: %s\n", agentDetails.Folder))
+
+	if !agentDetails.StartTime.IsZero() {
+		status.WriteString(fmt.Sprintf("Started: %s\n", agentDetails.StartTime.Format("15:04:05")))
+		status.WriteString(fmt.Sprintf("Runtime: %s\n", time.Since(agentDetails.StartTime).Round(time.Second).String()))
+	}
+
+	// Check for current plan
+	if agentDetails.Status == "running" {
+		planPath := filepath.Join(agentDetails.Folder, "CURRENT_PLAN.md")
+		if content, err := os.ReadFile(planPath); err == nil {
+			status.WriteString("\n--- Current Plan ---\n")
+			status.WriteString(string(content))
+		}
+	}
+
+	// Add output if available
+	if agentDetails.Output != "" {
+		status.WriteString("\n--- Output ---\n")
+		status.WriteString(agentDetails.Output)
+	}
 
 	if agent.IsStale {
 		status.WriteString("\n⚠️  WARNING: This agent appears to be stale\n")
@@ -128,6 +169,13 @@ func createCodeAgent(task, workDir string) (string, error) {
 		workDir = "."
 	}
 
+	// Use ResolvePath to ensure paths are resolved from home directory
+	absPath, err := ResolvePath(workDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve path: %w", err)
+	}
+	workDir = absPath
+
 	// Use the agent manager to create the agent
 	agentID, err := agentManager.LaunchAgent(context.Background(), workDir, task)
 	if err != nil {
@@ -142,8 +190,6 @@ func gitCommit(message string) (string, error) {
 	output, err := cmd.CombinedOutput()
 	return string(output), err
 }
-
-
 
 // getDiskUsage returns disk usage information for the current directory
 func getDiskUsage() (uint64, error) {
@@ -166,10 +212,37 @@ func getDiskUsage() (uint64, error) {
 	return used, nil
 }
 
-
 // serveStatic serves static files
 func serveStatic(w http.ResponseWriter, r *http.Request) {
-	http.StripPrefix("/static/", http.FileServer(http.Dir("data/web/static"))).ServeHTTP(w, r)
+	// Get the file path
+	path := strings.TrimPrefix(r.URL.Path, "/static/")
+	fullPath := filepath.Join(ProjectDir, "data/web/static", path)
+
+	// Set proper content type based on file extension
+	ext := filepath.Ext(path)
+	switch ext {
+	case ".css":
+		w.Header().Set("Content-Type", "text/css")
+	case ".js":
+		w.Header().Set("Content-Type", "application/javascript")
+	case ".html":
+		w.Header().Set("Content-Type", "text/html")
+	case ".json":
+		w.Header().Set("Content-Type", "application/json")
+	case ".png":
+		w.Header().Set("Content-Type", "image/png")
+	case ".jpg", ".jpeg":
+		w.Header().Set("Content-Type", "image/jpeg")
+	case ".gif":
+		w.Header().Set("Content-Type", "image/gif")
+	case ".svg":
+		w.Header().Set("Content-Type", "image/svg+xml")
+	case ".ico":
+		w.Header().Set("Content-Type", "image/x-icon")
+	}
+
+	// Serve the file
+	http.ServeFile(w, r, fullPath)
 }
 
 // serveUploads serves uploaded files
@@ -286,6 +359,13 @@ func StopAgent(agentID string) error {
 
 // CreateCodeAgent creates a new code agent
 func CreateCodeAgent(ctx context.Context, workDir, task string, images []string) (string, error) {
+	// Use ResolvePath to ensure paths are resolved from home directory
+	absPath, err := ResolvePath(workDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve path: %w", err)
+	}
+	workDir = absPath
+
 	// Validate git repo
 	if !isGitRepo(workDir) {
 		return "", fmt.Errorf("not a git repository: %s", workDir)
@@ -433,7 +513,13 @@ func CreateEditBranchAgent(ctx context.Context, workDir, branch, task string, im
 
 // getGitDiff returns git diff for a path
 func getGitDiff(path string) (string, error) {
-	info, err := os.Stat(path)
+	// Use ResolvePath to ensure paths are resolved from home directory
+	resolvedPath, err := ResolvePath(path)
+	if err != nil {
+		return "", err
+	}
+
+	info, err := os.Stat(resolvedPath)
 	if err != nil {
 		return "", err
 	}
@@ -441,18 +527,18 @@ func getGitDiff(path string) (string, error) {
 	var cmd *exec.Cmd
 	if info.IsDir() {
 		// Check if it's a git repo
-		if !isGitRepo(path) {
+		if !isGitRepo(resolvedPath) {
 			return "", fmt.Errorf("not a git repository")
 		}
 		cmd = exec.Command("git", "diff", "HEAD")
-		cmd.Dir = path
+		cmd.Dir = resolvedPath
 	} else {
 		// Single file
-		dir := filepath.Dir(path)
+		dir := filepath.Dir(resolvedPath)
 		if !isGitRepo(dir) {
 			return "", fmt.Errorf("not in a git repository")
 		}
-		relPath, _ := filepath.Rel(dir, path)
+		relPath, _ := filepath.Rel(dir, resolvedPath)
 		cmd = exec.Command("git", "diff", "HEAD", "--", relPath)
 		cmd.Dir = dir
 	}

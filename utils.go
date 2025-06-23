@@ -202,6 +202,7 @@ func NewID(length int) string {
 // - Paths starting with ~ (replaced with home directory)
 // - Relative paths (resolved from home directory)
 // - Absolute paths (returned as-is)
+// This ensures all paths are resolved consistently from the user's home directory
 func ResolvePath(path string) (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -221,6 +222,7 @@ func ResolvePath(path string) (string, error) {
 	}
 
 	// Otherwise, treat it as relative to home directory
+	// This ensures consistency regardless of current working directory
 	return filepath.Join(homeDir, path), nil
 }
 

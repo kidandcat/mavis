@@ -219,6 +219,8 @@ func handleGitCommit(w http.ResponseWriter, r *http.Request) {
 
 	var req struct {
 		Message string `json:"message"`
+		Folder  string `json:"folder"`
+		Push    bool   `json:"push"`
 	}
 
 	if r.Header.Get("Content-Type") == "application/json" {
@@ -228,6 +230,8 @@ func handleGitCommit(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		req.Message = r.FormValue("message")
+		req.Folder = r.FormValue("folder")
+		req.Push = r.FormValue("push") == "true"
 	}
 
 	if req.Message == "" {
@@ -235,7 +239,12 @@ func handleGitCommit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	output, err := gitCommit(req.Message)
+	if req.Folder == "" {
+		req.Folder = "."
+	}
+
+	// Use commitAndPush which handles both commit and push based on the flag
+	output, err := commitAndPush(req.Folder, req.Message)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})

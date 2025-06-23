@@ -11,16 +11,32 @@ func GitSection() g.Node {
 	return h.Div(h.ID("git-section"), h.Class("section"),
 		h.Div(h.Class("section-header"),
 			h.H2(g.Text("Git Operations")),
-			h.Button(
-				h.Class("btn btn-primary"),
-				g.Attr("onclick", "refreshGitDiff(); return false;"),
-				g.Text("Refresh Diff"),
+		),
+
+		h.Div(h.Class("git-folder-selector"),
+			h.Form(h.Class("inline-form"),
+				h.Div(h.Class("form-group"),
+					h.Label(h.For("git-folder"), g.Text("Repository Path:")),
+					h.Input(
+						h.Type("text"),
+						h.ID("git-folder"),
+						h.Name("folder"),
+						h.Placeholder("Enter repository path (e.g., /path/to/repo)"),
+						h.Value("."),
+						h.Class("form-control"),
+					),
+				),
+				h.Button(
+					h.Type("button"),
+					h.Class("btn btn-primary"),
+					g.Attr("onclick", "refreshGitDiff(); return false;"),
+					g.Text("Load Repository"),
+				),
 			),
 		),
 
 		h.Div(h.ID("git-diff-container"),
-			g.Attr("data-load-on-init", "true"),
-			h.Div(h.Class("loading"), g.Text("Loading git diff...")),
+			h.Div(h.Class("info"), g.Text("Select a repository path and click 'Load Repository' to view changes")),
 		),
 
 		GitCommitForm(),

@@ -27,6 +27,7 @@ var (
 	AdminUserID  int64
 	b            *bot.Bot
 	agentManager *codeagent.Manager
+	ProjectDir   string
 )
 
 // LAN server tracking
@@ -71,6 +72,23 @@ func main() {
 	if err != nil {
 		log.Fatal("ADMIN_USER_ID must be a valid integer:", err)
 	}
+
+	// Store the project directory before changing working directory
+	ProjectDir, err = os.Getwd()
+	if err != nil {
+		log.Fatal("Failed to get current working directory:", err)
+	}
+	log.Printf("Project directory: %s", ProjectDir)
+
+	// Change working directory to user home
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		log.Fatal("Failed to get user home directory:", err)
+	}
+	if err := os.Chdir(homeDir); err != nil {
+		log.Fatal("Failed to change to home directory:", err)
+	}
+	log.Printf("Changed working directory to: %s", homeDir)
 
 	// Create data directory if it doesn't exist
 	if err := os.MkdirAll("data", 0755); err != nil {

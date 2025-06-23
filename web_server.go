@@ -56,11 +56,12 @@ func StartWebServer(port string) error {
 	// Authentication removed - running on local network only
 
 	webServer = &http.Server{
-		Addr:         ":" + port,
-		Handler:      mux,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		Addr:    ":" + port,
+		Handler: mux,
+		// Longer timeouts for SSE connections
+		ReadTimeout:  5 * time.Minute,
+		WriteTimeout: 5 * time.Minute,
+		IdleTimeout:  5 * time.Minute,
 	}
 
 	// Start SSE broadcaster
@@ -153,14 +154,31 @@ func handleSSE(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "event: agents-update\ndata: %s\n\n", data)
 	flusher.Flush()
 
+	// Create a ticker for heartbeat
+	heartbeat := time.NewTicker(30 * time.Second)
+	defer heartbeat.Stop()
+
 	// Listen for events
 	for {
 		select {
 		case event := <-clientChan:
 			data, _ := json.Marshal(event.Data)
-			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, data)
+			_, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, data)
+			if err != nil {
+				log.Printf("SSE write error: %v", err)
+				return
+			}
+			flusher.Flush()
+		case <-heartbeat.C:
+			// Send heartbeat to keep connection alive
+			_, err := fmt.Fprintf(w, ": heartbeat\n\n")
+			if err != nil {
+				log.Printf("SSE heartbeat error: %v", err)
+				return
+			}
 			flusher.Flush()
 		case <-r.Context().Done():
+			log.Println("SSE client disconnected")
 			return
 		}
 	}
