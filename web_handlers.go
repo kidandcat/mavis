@@ -189,6 +189,34 @@ func handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if agent was queued
+	if strings.HasPrefix(agentID, "queued-") {
+		// Parse queue information
+		parts := strings.Split(agentID, "-")
+		var queuePos string
+		for i := 0; i < len(parts); i++ {
+			if parts[i] == "pos" && i+1 < len(parts) {
+				queuePos = parts[i+1]
+				break
+			}
+		}
+		
+		// Return queued agent info
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"ID":           agentID,
+			"Task":         req.Task,
+			"Status":       "queued",
+			"QueuePosition": queuePos,
+			"StartTime":    time.Now(),
+			"LastActive":   time.Now(),
+			"MessagesSent": 0,
+			"QueueStatus":  fmt.Sprintf("Position %s", queuePos),
+			"IsStale":      false,
+		})
+		return
+	}
+
 	// Get the new agent status
 	agent := getAgentByID(agentID)
 	if agent == nil {
@@ -374,4 +402,24 @@ func handleImageUpload(w http.ResponseWriter, r *http.Request) {
 		"url":      "/uploads/" + filename,
 		"filename": filename,
 	})
+}
+
+func handleWebRestart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Send success response before restarting
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "restarting",
+		"message": "Mavis is restarting...",
+	})
+
+	// Schedule restart after a short delay to allow response to be sent
+	go func() {
+		time.Sleep(1 * time.Second)
+		os.Exit(0)
+	}()
 }

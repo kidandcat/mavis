@@ -53,6 +53,23 @@ func GetAllAgentsStatusJSON() []AgentStatusInfo {
 		})
 	}
 
+	// Add queued tasks
+	queueStatus := agentManager.GetDetailedQueueStatus()
+	for folder, tasks := range queueStatus {
+		for i, task := range tasks {
+			result = append(result, AgentStatusInfo{
+				ID:           task.QueueID,
+				Task:         task.Prompt,
+				Status:       "queued",
+				StartTime:    time.Now(), // Use current time as placeholder
+				LastActive:   time.Now(),
+				MessagesSent: 0,
+				QueueStatus:  fmt.Sprintf("Position %d in %s", i+1, folder),
+				IsStale:      false,
+			})
+		}
+	}
+
 	return result
 }
 
@@ -108,6 +125,17 @@ func getAgentStatus(agentID string) string {
 	agent := getAgentByID(agentID)
 	if agent == nil {
 		return ""
+	}
+
+	// Check if this is a queued agent
+	if agent.Status == "queued" {
+		var status strings.Builder
+		status.WriteString(fmt.Sprintf("Agent ID: %s\n", agent.ID))
+		status.WriteString(fmt.Sprintf("Task: %s\n", agent.Task))
+		status.WriteString(fmt.Sprintf("Status: QUEUED\n"))
+		status.WriteString(fmt.Sprintf("Queue Status: %s\n", agent.QueueStatus))
+		status.WriteString("\nThis agent is waiting for another agent to complete in the same directory.")
+		return status.String()
 	}
 
 	// Get more detailed status from agent manager

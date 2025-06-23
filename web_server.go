@@ -46,6 +46,7 @@ func StartWebServer(port string) error {
 	mux.HandleFunc("/api/files/download", handleWebDownload)
 	mux.HandleFunc("/api/command/run", handleWebRunCommand)
 	mux.HandleFunc("/api/images", handleImageUpload)
+	mux.HandleFunc("/api/system/restart", handleWebRestart)
 
 	// JSON API endpoints
 	mux.HandleFunc("/api/agents", handleWebAgents)

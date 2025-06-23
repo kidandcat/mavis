@@ -5,10 +5,27 @@ import (
 	h "maragu.dev/gomponents/html"
 )
 
+func SystemControlsForm() g.Node {
+	return h.Div(
+		h.Button(
+			h.Type("button"),
+			h.Class("btn btn-danger"),
+			g.Attr("onclick", "restartMavis()"),
+			g.Text("Restart Mavis"),
+		),
+		h.Div(h.ID("restart-message"), h.Class("message")),
+	)
+}
+
 func SystemSection() g.Node {
 	return h.Div(h.ID("system-section"), h.Class("section"),
 		h.Div(h.Class("section-header"),
 			h.H2(g.Text("System Management")),
+		),
+
+		h.Div(h.Class("subsection"),
+			h.H3(g.Text("System Controls")),
+			SystemControlsForm(),
 		),
 
 		h.Div(h.Class("subsection"),
