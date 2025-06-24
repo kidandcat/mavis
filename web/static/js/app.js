@@ -3,8 +3,7 @@
 // Global state
 let eventSource = null;
 let currentPage = 'agents';
-let selectedAgentId = null;
-let agentStatusInterval = null;
+// Removed selectedAgentId and agentStatusInterval - no longer needed
 let reconnectAttempts = 0;
 
 // Initialize application
@@ -77,23 +76,7 @@ function updateAgentsUI(agents) {
         const agentId = card.getAttribute('data-agent-id');
         if (!currentAgentIds.has(agentId)) {
             card.remove();
-            // If the removed agent was selected, clear the selection
-            if (agentId === selectedAgentId) {
-                selectedAgentId = null;
-                if (agentStatusInterval) {
-                    clearInterval(agentStatusInterval);
-                    agentStatusInterval = null;
-                }
-                // Clear the status panel
-                const statusContent = document.getElementById('agent-status-content');
-                if (statusContent) {
-                    statusContent.innerHTML = '<div class="status-placeholder"><p>No agent selected</p></div>';
-                }
-                const subtitle = document.querySelector('.status-panel-subtitle');
-                if (subtitle) {
-                    subtitle.textContent = 'Select an agent to view status';
-                }
-            }
+            // Agent removed from UI
         }
     });
     
@@ -112,12 +95,8 @@ function updateAgentsUI(agents) {
             const queueElem = card.querySelector('.stat-queue');
             if (queueElem) queueElem.textContent = agent.QueueStatus;
             
-            // Update status class, preserving selected state
-            const isSelected = card.classList.contains('selected');
+            // Update status class
             card.className = `agent-card ${getStatusClass(agent)}`;
-            if (isSelected) {
-                card.classList.add('selected');
-            }
             
             // Update actions (stop button for running, delete button for completed)
             const actionsDiv = card.querySelector('.agent-actions');
@@ -133,17 +112,22 @@ function updateAgentsUI(agents) {
                     actionsDiv.innerHTML = '';
                 }
             }
+            
+            // Update progress for running agents
+            updateAgentProgress(agent.ID, agent.Status);
         } else {
             // Add new agent card
             const newCard = createAgentCard(agent);
             agentsGrid.insertAdjacentHTML('beforeend', newCard);
+            
+            // Fetch progress for new running agents
+            if (agent.Status === 'running' || agent.Status === 'active') {
+                updateAgentProgress(agent.ID, agent.Status);
+            }
         }
     });
     
-    // If we have a selected agent, refresh its status
-    if (selectedAgentId) {
-        refreshAgentStatus();
-    }
+    // Progress is now updated inline for each agent
 }
 
 function getStatusClass(agent) {
@@ -159,6 +143,33 @@ function getStatusClass(agent) {
         return 'stale';
     }
     return 'running'; // default to running
+}
+
+async function updateAgentProgress(agentId, status) {
+    const progressDiv = document.getElementById(`progress-${agentId}`);
+    if (!progressDiv) return;
+    
+    if (status === 'running' || status === 'active' || status === 'queued') {
+        try {
+            const response = await fetch(`/api/agent/${agentId}/status?progress-only=true`);
+            if (!response.ok) throw new Error('Failed to get agent progress');
+            
+            const data = await response.json();
+            const progressContent = progressDiv.querySelector('.progress-content');
+            
+            if (data.progress && data.progress.trim()) {
+                progressContent.innerHTML = `<pre>${escapeHtml(data.progress)}</pre>`;
+                progressDiv.style.display = 'block';
+            } else {
+                progressDiv.style.display = 'none';
+            }
+        } catch (error) {
+            console.error('Error getting agent progress:', error);
+            progressDiv.style.display = 'none';
+        }
+    } else {
+        progressDiv.style.display = 'none';
+    }
 }
 
 // Navigation setup
@@ -179,14 +190,7 @@ function navigateToPage(page) {
     loadPage(page);
     updateActiveNavItem();
     
-    // Clear agent selection when navigating away
-    if (page !== 'agents') {
-        selectedAgentId = null;
-        if (agentStatusInterval) {
-            clearInterval(agentStatusInterval);
-            agentStatusInterval = null;
-        }
-    }
+    // No cleanup needed when navigating away
 }
 
 function updateActiveNavItem() {
@@ -351,23 +355,7 @@ async function deleteAgent(agentID) {
         if (card) {
             card.remove();
             
-            // If this was the selected agent, clear the selection
-            if (agentID === selectedAgentId) {
-                selectedAgentId = null;
-                if (agentStatusInterval) {
-                    clearInterval(agentStatusInterval);
-                    agentStatusInterval = null;
-                }
-                // Clear the status panel
-                const statusContent = document.getElementById('agent-status-content');
-                if (statusContent) {
-                    statusContent.innerHTML = '<div class="status-placeholder"><p>No agent selected</p></div>';
-                }
-                const subtitle = document.querySelector('.status-panel-subtitle');
-                if (subtitle) {
-                    subtitle.textContent = 'Select an agent to view status';
-                }
-            }
+            // Agent deleted
         }
     } catch (error) {
         console.error('Error deleting agent:', error);
@@ -378,28 +366,15 @@ async function deleteAgent(agentID) {
 // Rendering functions
 function renderAgentsSection(agents) {
     return `
-        <div id="agents-section" class="section agents-container">
-            <div class="agents-panel">
-                <div class="section-header">
-                    <h2>Active Agents</h2>
-                    <button class="btn btn-primary" onclick="showCreateAgentModal()">+ New Agent</button>
-                </div>
-                <div id="agents-grid" class="agents-grid">
-                    ${agents.map(agent => createAgentCard(agent)).join('')}
-                </div>
-                ${createAgentModal()}
+        <div id="agents-section" class="section">
+            <div class="section-header">
+                <h2>Active Agents</h2>
+                <button class="btn btn-primary" onclick="showCreateAgentModal()">+ New Agent</button>
             </div>
-            <div id="agent-status-panel" class="agent-status-panel">
-                <div class="status-panel-header">
-                    <h3>Agent Status</h3>
-                    <span class="status-panel-subtitle">Select an agent to view status</span>
-                </div>
-                <div id="agent-status-content" class="agent-status-content">
-                    <div class="status-placeholder">
-                        <p>No agent selected</p>
-                    </div>
-                </div>
+            <div id="agents-grid" class="agents-grid">
+                ${agents.map(agent => createAgentCard(agent)).join('')}
             </div>
+            ${createAgentModal()}
         </div>
     `;
 }
@@ -409,7 +384,7 @@ function createAgentCard(agent) {
     const agentId = agent.ID || agent.id;
     
     return `
-        <div id="agent-${agentId}" class="agent-card ${statusClass}" data-agent-id="${agentId}" onclick="selectAgent('${agentId}')">
+        <div id="agent-${agentId}" class="agent-card ${statusClass}" data-agent-id="${agentId}">
             <div class="agent-header">
                 <h3>Agent ${agentId.substring(0, 8)}</h3>
                 <span class="agent-status">${agent.Status}</span>
@@ -430,6 +405,10 @@ function createAgentCard(agent) {
                     <span class="stat-label">Queue:</span>
                     <span class="stat-value stat-queue">${agent.QueueStatus}</span>
                 </div>
+            </div>
+            <div class="agent-progress" id="progress-${agentId}" style="display: none;">
+                <div class="progress-header">Progress:</div>
+                <div class="progress-content"></div>
             </div>
             <div class="agent-actions">
                 ${(agent.Status === 'active' || agent.Status === 'running') ? `<button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); stopAgent('${agentId}')">Stop</button>` : 
@@ -747,83 +726,9 @@ function attemptReconnect() {
     }, 1000);
 }
 
-// Agent selection and status display
-async function selectAgent(agentId) {
-    // Remove previous selection
-    document.querySelectorAll('.agent-card').forEach(card => {
-        card.classList.remove('selected');
-    });
-    
-    // Add selection to clicked agent
-    const agentCard = document.getElementById(`agent-${agentId}`);
-    if (agentCard) {
-        agentCard.classList.add('selected');
-    }
-    
-    // Update selected agent ID
-    selectedAgentId = agentId;
-    
-    // Show status panel
-    const statusPanel = document.getElementById('agent-status-panel');
-    if (statusPanel) {
-        statusPanel.classList.add('active');
-    }
-    
-    // Load agent status
-    await refreshAgentStatus();
-    
-    // Clear any existing interval
-    if (agentStatusInterval) {
-        clearInterval(agentStatusInterval);
-    }
-    
-    // Set up periodic refresh
-    agentStatusInterval = setInterval(refreshAgentStatus, 2000);
-}
+// Removed agent selection functionality - progress is now shown inline
 
-async function refreshAgentStatus() {
-    if (!selectedAgentId) return;
-    
-    try {
-        const response = await fetch(`/api/agent/${selectedAgentId}/status`);
-        if (!response.ok) throw new Error('Failed to get agent status');
-        
-        const data = await response.json();
-        
-        // Update status panel
-        const statusContent = document.getElementById('agent-status-content');
-        if (statusContent) {
-            statusContent.innerHTML = `
-                <div class="status-details">
-                    <div class="status-header">
-                        <h4>Agent ${selectedAgentId.substring(0, 8)}</h4>
-                    </div>
-                    <div class="terminal-output">
-                        <pre>${escapeHtml(data.status)}</pre>
-                    </div>
-                </div>
-            `;
-            
-            // Auto-scroll to bottom of terminal output
-            const terminalOutput = statusContent.querySelector('.terminal-output');
-            if (terminalOutput) {
-                terminalOutput.scrollTop = terminalOutput.scrollHeight;
-            }
-        }
-        
-        // Update panel subtitle
-        const subtitle = document.querySelector('.status-panel-subtitle');
-        if (subtitle) {
-            subtitle.textContent = `Last updated: ${new Date().toLocaleTimeString()}`;
-        }
-    } catch (error) {
-        console.error('Error getting agent status:', error);
-        const statusContent = document.getElementById('agent-status-content');
-        if (statusContent) {
-            statusContent.innerHTML = '<div class="error">Failed to load agent status</div>';
-        }
-    }
-}
+// Removed refreshAgentStatus - progress is now updated inline
 
 // Utility function to escape HTML
 function escapeHtml(text) {

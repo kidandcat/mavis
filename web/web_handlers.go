@@ -119,6 +119,18 @@ func handleAgentStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	agentID := pathParts[3]
+	
+	// Check if progress-only is requested
+	if r.URL.Query().Get("progress-only") == "true" {
+		progress := getAgentProgress(agentID)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"id":       agentID,
+			"progress": progress,
+		})
+		return
+	}
+	
 	status := getAgentStatus(agentID)
 
 	if status == "" {

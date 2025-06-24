@@ -11128,7 +11128,6 @@ body::after {
     border-radius: 8px;
     padding: var(--space-md);
     transition: all var(--transition-speed);
-    cursor: pointer;
     position: relative;
     overflow: hidden;
     width: 100%;
@@ -15829,6 +15828,52 @@ body::after {
     margin-top: var(--space-sm);
     padding-top: var(--space-sm);
     border-top: 1px solid rgba(0, 255, 255, 0.1);
+}
+
+/* Agent Progress Section */
+.agent-progress {
+    margin-top: var(--space-sm);
+    padding: var(--space-sm);
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(0, 255, 255, 0.2);
+    border-radius: 4px;
+    font-family: 'Share Tech Mono', monospace;
+}
+
+.agent-progress .progress-header {
+    color: var(--primary-color);
+    font-size: 0.875rem;
+    font-weight: 600;
+    margin-bottom: var(--space-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+.agent-progress .progress-content {
+    color: var(--text-secondary);
+    font-size: 0.813rem;
+    line-height: 1.5;
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+.agent-progress .progress-content pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.agent-progress .progress-content::-webkit-scrollbar {
+    width: 4px;
+}
+
+.agent-progress .progress-content::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.agent-progress .progress-content::-webkit-scrollbar-thumb {
+    background: var(--primary-color);
+    border-radius: 2px;
 }
 
 /* Glitch Effects */

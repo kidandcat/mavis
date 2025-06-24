@@ -122,6 +122,55 @@ func getAgentByID(agentID string) *AgentStatusInfo {
 	return nil
 }
 
+func getAgentProgress(agentID string) string {
+	agent := getAgentByID(agentID)
+	if agent == nil {
+		return ""
+	}
+
+	// Check if this is a queued agent
+	if agent.Status == "queued" {
+		return fmt.Sprintf("Queued: %s", agent.QueueStatus)
+	}
+
+	// Get agent details from agent manager
+	agentDetails, err := agentManager.GetAgent(agentID)
+	if err != nil || agentDetails == nil {
+		return ""
+	}
+
+	// Only look for progress in CURRENT_PLAN.md for running agents
+	if agentDetails.Status == "running" {
+		planPath := filepath.Join(agentDetails.Folder, "CURRENT_PLAN.md")
+		if content, err := os.ReadFile(planPath); err == nil {
+			// Extract only the progress section
+			lines := strings.Split(string(content), "\n")
+			inProgress := false
+			var progressLines []string
+			
+			for _, line := range lines {
+				if strings.HasPrefix(line, "## Progress") {
+					inProgress = true
+					continue
+				} else if inProgress && strings.HasPrefix(line, "##") {
+					// End of progress section
+					break
+				}
+				
+				if inProgress && strings.TrimSpace(line) != "" {
+					progressLines = append(progressLines, line)
+				}
+			}
+			
+			if len(progressLines) > 0 {
+				return strings.Join(progressLines, "\n")
+			}
+		}
+	}
+
+	return ""
+}
+
 func getAgentStatus(agentID string) string {
 	agent := getAgentByID(agentID)
 	if agent == nil {
