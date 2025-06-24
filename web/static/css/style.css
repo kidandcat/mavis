@@ -13111,6 +13111,49 @@ body::after {
     text-shadow: 0 0 5px var(--success-color);
 }
 
+/* Agent output styling for finished agents */
+.agent-output {
+    margin: var(--space-md) 0;
+    padding: var(--space-md);
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(0, 255, 255, 0.3);
+    border-radius: 4px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.agent-output pre {
+    margin: 0;
+    font-family: 'Courier New', monospace;
+    font-size: 0.875rem;
+    color: var(--text-color);
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+/* Agent time display */
+.agent-time {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-top: var(--space-sm);
+    padding: var(--space-sm);
+    background: rgba(0, 255, 163, 0.1);
+    border: 1px solid rgba(0, 255, 163, 0.3);
+    border-radius: 4px;
+}
+
+.agent-time .time-label {
+    font-weight: 500;
+    color: var(--success-color);
+}
+
+.agent-time .time-value {
+    font-family: 'Courier New', monospace;
+    color: var(--text-color);
+    font-weight: bold;
+}
+
 /* Glitch Effects */
 .glitch {
     position: relative;

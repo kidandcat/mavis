@@ -33,6 +33,8 @@ type AgentStatusInfo struct {
 	MessagesSent int
 	QueueStatus  string
 	IsStale      bool
+	Output       string
+	Duration     time.Duration
 }
 
 // GetAllAgentsStatusJSON returns status of all active agents for web interface
@@ -56,6 +58,8 @@ func GetAllAgentsStatusJSON() []AgentStatusInfo {
 			MessagesSent: 0,               // Not tracked in current implementation
 			QueueStatus:  "running",
 			IsStale:      false,
+			Output:       agent.Output,
+			Duration:     agent.Duration,
 		})
 	}
 

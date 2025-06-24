@@ -84,7 +84,16 @@ function updateAgentsUI(agents) {
     agents.forEach(agent => {
         const card = document.getElementById(`agent-${agent.ID}`);
         if (card) {
-            // Update existing card
+            // If status changed to finished, recreate the entire card
+            const currentStatus = card.querySelector('.agent-status')?.textContent;
+            if (currentStatus !== 'finished' && agent.Status === 'finished') {
+                // Replace the entire card with the new finished format
+                const newCard = createAgentCard(agent);
+                card.outerHTML = newCard;
+                return;
+            }
+            
+            // Update existing card for non-finished agents
             const statusElem = card.querySelector('.agent-status');
             if (statusElem) statusElem.textContent = agent.Status;
             
@@ -379,10 +388,48 @@ function renderAgentsSection(agents) {
     `;
 }
 
+function formatDuration(duration) {
+    // Duration is in nanoseconds from Go
+    const totalSeconds = Math.floor(duration / 1000000000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    
+    if (minutes > 0) {
+        return `${minutes}m ${seconds}s`;
+    }
+    return `${seconds}s`;
+}
+
 function createAgentCard(agent) {
     const statusClass = getStatusClass(agent);
     const agentId = agent.ID || agent.id;
     
+    // For finished agents, show only output and time taken
+    if (agent.Status === 'finished') {
+        const duration = agent.Duration ? formatDuration(agent.Duration) : 'N/A';
+        const output = agent.Output || 'No output available';
+        
+        return `
+            <div id="agent-${agentId}" class="agent-card ${statusClass}" data-agent-id="${agentId}">
+                <div class="agent-header">
+                    <h3>Agent ${agentId.substring(0, 8)}</h3>
+                    <span class="agent-status">${agent.Status}</span>
+                </div>
+                <div class="agent-output">
+                    <pre>${escapeHtml(output)}</pre>
+                </div>
+                <div class="agent-time">
+                    <span class="time-label">Time taken:</span>
+                    <span class="time-value">${duration}</span>
+                </div>
+                <div class="agent-actions">
+                    <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); deleteAgent('${agentId}')">Delete</button>
+                </div>
+            </div>
+        `;
+    }
+    
+    // For other statuses, keep the original display
     return `
         <div id="agent-${agentId}" class="agent-card ${statusClass}" data-agent-id="${agentId}">
             <div class="agent-header">
