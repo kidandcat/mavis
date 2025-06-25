@@ -5,13 +5,28 @@ window.addEventListener('beforeunload', function() {
     localStorage.setItem('mavis-scroll-position', window.scrollY);
 });
 
-// Restore scroll position after page load
-window.addEventListener('DOMContentLoaded', function() {
-    const savedPosition = localStorage.getItem('mavis-scroll-position');
-    if (savedPosition) {
-        // Wait a bit for content to render, then scroll
-        setTimeout(function() {
-            window.scrollTo(0, parseInt(savedPosition));
-        }, 100);
+// Handle restart button - redirect to root before restarting
+document.addEventListener('DOMContentLoaded', function() {
+    // Find the restart form by its action attribute
+    const restartForm = document.querySelector('form[action="/api/system/restart"]');
+    
+    if (restartForm) {
+        restartForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            // Redirect to root path
+            window.location.href = '/';
+            
+            // Wait 1 second then submit the restart request
+            setTimeout(function() {
+                fetch('/api/system/restart', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    }
+                });
+            }, 1000);
+        });
     }
 });
+
