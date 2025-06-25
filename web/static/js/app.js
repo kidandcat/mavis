@@ -5,6 +5,7 @@ let eventSource = null;
 let currentPage = 'agents';
 // Removed selectedAgentId and agentStatusInterval - no longer needed
 let reconnectAttempts = 0;
+let runningTimeInterval = null;
 
 // Initialize application
 document.addEventListener('DOMContentLoaded', function() {
@@ -20,7 +21,38 @@ document.addEventListener('DOMContentLoaded', function() {
         currentPage = path.substring(1);
     }
     updateActiveNavItem();
+    
+    // If we're on the agents page, initialize with embedded data or fetch
+    if (currentPage === 'agents' || path === '/' || path === '') {
+        // Check if we have initial data embedded from server-side rendering
+        if (window.initialAgentsData) {
+            updateAgentsUI(window.initialAgentsData);
+            // Clear the initial data to avoid reusing stale data
+            delete window.initialAgentsData;
+        } else {
+            // No embedded data, fetch via AJAX
+            initializeAgentsPage();
+        }
+    }
 });
+
+// Initialize agents page on direct load or refresh
+async function initializeAgentsPage() {
+    try {
+        const response = await fetch('/agents', {
+            headers: {
+                'Accept': 'application/json'
+            }
+        });
+        
+        if (!response.ok) throw new Error('Failed to load agents');
+        
+        const agents = await response.json();
+        updateAgentsUI(agents);
+    } catch (error) {
+        console.error('Error initializing agents page:', error);
+    }
+}
 
 // Server-Sent Events setup
 function initializeEventSource() {
@@ -60,23 +92,87 @@ function initializeEventSource() {
     });
 }
 
+// Start updating running time for active agents
+function startRunningTimeUpdates() {
+    // Clear any existing interval
+    if (runningTimeInterval) {
+        clearInterval(runningTimeInterval);
+    }
+    
+    // Update running time every second
+    runningTimeInterval = setInterval(() => {
+        if (currentPage !== 'agents') return;
+        
+        // Find all running/active agent cards
+        const runningCards = document.querySelectorAll('.agent-card.running, .agent-card.queued');
+        runningCards.forEach(card => {
+            const agentId = card.getAttribute('data-agent-id');
+            const statusElem = card.querySelector('.agent-status');
+            if (statusElem) {
+                // Extract the base status (without running time)
+                const statusText = statusElem.textContent;
+                const baseStatus = statusText.replace(/ for \d+m \d+s| for \d+s/, '');
+                
+                // Get the start time from the card's data attribute
+                const startTimeAttr = card.getAttribute('data-start-time');
+                if (startTimeAttr) {
+                    const startTime = new Date(startTimeAttr);
+                    const now = new Date();
+                    const elapsedMs = now - startTime;
+                    
+                    // Convert to seconds
+                    const totalSeconds = Math.floor(elapsedMs / 1000);
+                    const minutes = Math.floor(totalSeconds / 60);
+                    const seconds = totalSeconds % 60;
+                    
+                    let timeText;
+                    if (minutes > 0) {
+                        timeText = `${minutes}m ${seconds}s`;
+                    } else {
+                        timeText = `${seconds}s`;
+                    }
+                    
+                    statusElem.textContent = `${baseStatus} for ${timeText}`;
+                }
+            }
+        });
+    }, 1000);
+}
+
+// Stop updating running time
+function stopRunningTimeUpdates() {
+    if (runningTimeInterval) {
+        clearInterval(runningTimeInterval);
+        runningTimeInterval = null;
+    }
+}
+
 // Update agents UI from SSE data
 function updateAgentsUI(agents) {
     if (currentPage !== 'agents') return;
     
+    // Sort all agents by ID first to ensure consistent ordering
+    const sortedAgents = [...agents].sort((a, b) => a.ID.localeCompare(b.ID));
+    
     // Categorize agents by status
+    const planningAgents = [];
     const queuedAgents = [];
     const runningAgents = [];
     const finishedAgents = [];
     
-    agents.forEach(agent => {
+    sortedAgents.forEach(agent => {
         switch (agent.Status) {
             case 'queued':
                 queuedAgents.push(agent);
                 break;
             case 'active':
             case 'running':
-                runningAgents.push(agent);
+                // Check if agent has progress to determine if it's planning or running
+                if (!agent.Progress || agent.Progress.trim() === '') {
+                    planningAgents.push(agent);
+                } else {
+                    runningAgents.push(agent);
+                }
                 break;
             case 'finished':
             case 'failed':
@@ -92,30 +188,38 @@ function updateAgentsUI(agents) {
     });
     
     // Update each column
+    updateColumn('planning-column', planningAgents);
     updateColumn('queue-column', queuedAgents);
     updateColumn('running-column', runningAgents);
     updateColumn('finished-column', finishedAgents);
     
     // Update counts
+    updateColumnCount('Planning', planningAgents.length);
     updateColumnCount('Queue', queuedAgents.length);
-    updateColumnCount('Running', runningAgents.length);
+    updateColumnCount('Coding', runningAgents.length);
     updateColumnCount('Finished', finishedAgents.length);
     
     // Update progress for all agents that should show progress
     // This ensures progress is displayed after page refresh
-    agents.forEach(agent => {
+    sortedAgents.forEach(agent => {
         if (agent.Status === 'running' || agent.Status === 'active' || agent.Status === 'queued') {
             updateAgentProgress(agent.ID, agent.Status);
         }
     });
+    
+    // Start updating running time for active agents
+    startRunningTimeUpdates();
 }
 
 function updateColumn(columnId, agents) {
     const column = document.getElementById(columnId);
     if (!column) return;
     
+    // Sort agents by ID to ensure stable ordering
+    const sortedAgents = [...agents].sort((a, b) => a.ID.localeCompare(b.ID));
+    
     // Create a set of current agent IDs in this column
-    const currentAgentIds = new Set(agents.map(agent => agent.ID));
+    const currentAgentIds = new Set(sortedAgents.map(agent => agent.ID));
     
     // Remove agents that are no longer in this column
     const existingCards = column.querySelectorAll('.agent-card');
@@ -126,12 +230,22 @@ function updateColumn(columnId, agents) {
         }
     });
     
-    // Update existing agents and add new ones
-    agents.forEach(agent => {
+    // Update existing agents and add new ones in sorted order
+    sortedAgents.forEach((agent, index) => {
         const card = document.getElementById(`agent-${agent.ID}`);
         if (card && card.parentElement.id === columnId) {
             // Update existing card in same column
             updateAgentCard(card, agent);
+            // Ensure card is in correct position
+            const cards = column.querySelectorAll('.agent-card');
+            if (cards[index] && cards[index].id !== card.id) {
+                // Card is out of position, move it
+                if (index === 0) {
+                    column.insertBefore(card, column.firstChild);
+                } else {
+                    column.insertBefore(card, cards[index]);
+                }
+            }
         } else {
             // Add new card or move from another column
             const newCard = createAgentCard(agent);
@@ -139,8 +253,13 @@ function updateColumn(columnId, agents) {
                 // Remove from old column
                 card.remove();
             }
-            // Add to new column
-            column.insertAdjacentHTML('beforeend', newCard);
+            // Insert at correct position
+            const cards = column.querySelectorAll('.agent-card');
+            if (index < cards.length) {
+                cards[index].insertAdjacentHTML('beforebegin', newCard);
+            } else {
+                column.insertAdjacentHTML('beforeend', newCard);
+            }
             // Update progress for newly added cards
             updateAgentProgress(agent.ID, agent.Status);
         }
@@ -171,14 +290,7 @@ function updateAgentCard(card, agent) {
     
     // Update existing card for non-finished agents
     const statusElem = card.querySelector('.agent-status');
-    if (statusElem) statusElem.textContent = agent.Status;
-    
-    // Update stats
-    const messagesElem = card.querySelector('.stat-messages');
-    if (messagesElem) messagesElem.textContent = agent.MessagesSent;
-    
-    const queueElem = card.querySelector('.stat-queue');
-    if (queueElem) queueElem.textContent = agent.QueueStatus;
+    if (statusElem) statusElem.textContent = agent.Status + getRunningTimeText(agent);
     
     // Update status class
     card.className = `agent-card ${getStatusClass(agent)}`;
@@ -219,7 +331,8 @@ function getStatusClass(agent) {
 
 async function updateAgentProgress(agentId, status) {
     const progressDiv = document.getElementById(`progress-${agentId}`);
-    if (!progressDiv) return;
+    const planningDiv = document.getElementById(`planning-${agentId}`);
+    if (!progressDiv && !planningDiv) return;
     
     if (status === 'running' || status === 'active' || status === 'queued') {
         try {
@@ -227,21 +340,57 @@ async function updateAgentProgress(agentId, status) {
             if (!response.ok) throw new Error('Failed to get agent progress');
             
             const data = await response.json();
-            const progressContent = progressDiv.querySelector('.progress-content');
             
             if (data.progress && data.progress.trim()) {
-                progressContent.innerHTML = `<pre>${escapeHtml(data.progress)}</pre>`;
-                progressDiv.style.display = 'block';
+                // Agent has progress, show progress and hide planning
+                if (progressDiv) {
+                    const progressContent = progressDiv.querySelector('.progress-content');
+                    progressContent.innerHTML = `<pre>${escapeHtml(data.progress)}</pre>`;
+                    progressDiv.style.display = 'block';
+                }
+                if (planningDiv) {
+                    planningDiv.style.display = 'none';
+                }
+                
+                // Move agent from planning to running column if needed
+                const card = document.getElementById(`agent-${agentId}`);
+                if (card && card.parentElement.id === 'planning-column') {
+                    const runningColumn = document.getElementById('running-column');
+                    if (runningColumn) {
+                        runningColumn.appendChild(card);
+                        // Update column counts
+                        updateColumnCounts();
+                    }
+                }
             } else {
-                progressDiv.style.display = 'none';
+                // Agent has no progress, show planning and hide progress
+                if (progressDiv) {
+                    progressDiv.style.display = 'none';
+                }
+                if (planningDiv && (status === 'running' || status === 'active')) {
+                    planningDiv.style.display = 'block';
+                }
             }
         } catch (error) {
             console.error('Error getting agent progress:', error);
-            progressDiv.style.display = 'none';
+            if (progressDiv) progressDiv.style.display = 'none';
+            if (planningDiv) planningDiv.style.display = 'none';
         }
     } else {
-        progressDiv.style.display = 'none';
+        if (progressDiv) progressDiv.style.display = 'none';
+        if (planningDiv) planningDiv.style.display = 'none';
     }
+}
+
+function updateColumnCounts() {
+    const columns = ['planning', 'queue', 'running', 'finished'];
+    columns.forEach(columnName => {
+        const column = document.getElementById(`${columnName}-column`);
+        if (column) {
+            const count = column.querySelectorAll('.agent-card').length;
+            updateColumnCount(columnName.charAt(0).toUpperCase() + columnName.slice(1), count);
+        }
+    });
 }
 
 // Navigation setup
@@ -257,6 +406,11 @@ function setupNavigation() {
 }
 
 function navigateToPage(page) {
+    // Stop running time updates when leaving agents page
+    if (currentPage === 'agents' && page !== 'agents') {
+        stopRunningTimeUpdates();
+    }
+    
     currentPage = page;
     history.pushState({page: page}, '', `/${page}`);
     loadPage(page);
@@ -291,6 +445,8 @@ async function loadPage(page) {
             
             const agents = await response.json();
             mainContent.innerHTML = renderAgentsSection(agents);
+            // Start running time updates for agents page
+            startRunningTimeUpdates();
         } else {
             // For Files, Git, and System tabs, we fetch the HTML content directly
             const response = await fetch(`/${page}`);
@@ -373,15 +529,19 @@ async function createAgent() {
                 queueColumn.insertAdjacentHTML('beforeend', newCard);
                 // Update progress for newly created agent
                 updateAgentProgress(data.ID, data.Status);
+                // Update column counts
+                updateColumnCounts();
             }
         } else {
-            // Add new agent to running column
-            const runningColumn = document.getElementById('running-column');
-            if (runningColumn) {
+            // Add new agent to planning column (they start in planning phase)
+            const planningColumn = document.getElementById('planning-column');
+            if (planningColumn) {
                 const newCard = createAgentCard(data);
-                runningColumn.insertAdjacentHTML('beforeend', newCard);
+                planningColumn.insertAdjacentHTML('beforeend', newCard);
                 // Update progress for newly created agent
                 updateAgentProgress(data.ID, data.Status);
+                // Update column counts
+                updateColumnCounts();
             }
         }
         
@@ -446,6 +606,7 @@ async function deleteAgent(agentID) {
 // Rendering functions
 function renderAgentsSection(agents) {
     // Categorize agents by status
+    const planningAgents = [];
     const queuedAgents = [];
     const runningAgents = [];
     const finishedAgents = [];
@@ -457,7 +618,12 @@ function renderAgentsSection(agents) {
                 break;
             case 'active':
             case 'running':
-                runningAgents.push(agent);
+                // Check if agent has progress to determine if it's planning or running
+                if (!agent.Progress || agent.Progress.trim() === '') {
+                    planningAgents.push(agent);
+                } else {
+                    runningAgents.push(agent);
+                }
                 break;
             case 'finished':
             case 'failed':
@@ -489,10 +655,20 @@ function renderAgentsSection(agents) {
                         ${queuedAgents.map(agent => createAgentCard(agent)).join('')}
                     </div>
                 </div>
-                <!-- Running Column -->
+                <!-- Planning Column -->
                 <div class="kanban-column">
                     <div class="kanban-header">
-                        <h3>Running</h3>
+                        <h3>Planning</h3>
+                        <span class="kanban-count">(${planningAgents.length})</span>
+                    </div>
+                    <div id="planning-column" class="kanban-cards">
+                        ${planningAgents.map(agent => createAgentCard(agent)).join('')}
+                    </div>
+                </div>
+                <!-- Coding Column -->
+                <div class="kanban-column">
+                    <div class="kanban-header">
+                        <h3>Coding</h3>
                         <span class="kanban-count">(${runningAgents.length})</span>
                     </div>
                     <div id="running-column" class="kanban-cards">
@@ -527,6 +703,32 @@ function formatDuration(duration) {
     return `${seconds}s`;
 }
 
+function getRunningTimeText(agent) {
+    // Only show running time for active/running agents
+    if (agent.Status !== 'active' && agent.Status !== 'running') {
+        return '';
+    }
+    
+    // Calculate elapsed time from StartTime to now
+    const startTime = new Date(agent.StartTime);
+    const now = new Date();
+    const elapsedMs = now - startTime;
+    
+    // Convert to seconds
+    const totalSeconds = Math.floor(elapsedMs / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    
+    let timeText;
+    if (minutes > 0) {
+        timeText = `${minutes}m ${seconds}s`;
+    } else {
+        timeText = `${seconds}s`;
+    }
+    
+    return ` for ${timeText}`;
+}
+
 function createAgentCard(agent) {
     const statusClass = getStatusClass(agent);
     const agentId = agent.ID || agent.id;
@@ -558,31 +760,23 @@ function createAgentCard(agent) {
     
     // For other statuses, keep the original display
     return `
-        <div id="agent-${agentId}" class="agent-card ${statusClass}" data-agent-id="${agentId}">
+        <div id="agent-${agentId}" class="agent-card ${statusClass}" data-agent-id="${agentId}" data-start-time="${agent.StartTime}">
             <div class="agent-header">
                 <h3>Agent ${agentId.substring(0, 8)}</h3>
-                <span class="agent-status">${agent.Status}</span>
+                <span class="agent-status">${agent.Status}${getRunningTimeText(agent)}</span>
             </div>
             <div class="agent-task">
                 <p>${agent.Task}</p>
             </div>
             <div class="agent-stats">
-                <div class="stat">
-                    <span class="stat-label">Started:</span>
-                    <span class="stat-value">${new Date(agent.StartTime).toLocaleTimeString()}</span>
-                </div>
-                <div class="stat">
-                    <span class="stat-label">Messages:</span>
-                    <span class="stat-value stat-messages">${agent.MessagesSent}</span>
-                </div>
-                <div class="stat">
-                    <span class="stat-label">Queue:</span>
-                    <span class="stat-value stat-queue">${agent.QueueStatus}</span>
-                </div>
             </div>
             <div class="agent-progress" id="progress-${agentId}" style="display: none;">
                 <div class="progress-header">Progress:</div>
                 <div class="progress-content"></div>
+            </div>
+            <div class="agent-planning" id="planning-${agentId}" style="display: none;">
+                <div class="planning-header">Planning:</div>
+                <div class="planning-content">Agent is analyzing the task and creating a plan...</div>
             </div>
             <div class="agent-actions">
                 ${(agent.Status === 'active' || agent.Status === 'running') ? `<button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); stopAgent('${agentId}')">Stop</button>` : 
@@ -603,12 +797,12 @@ function createAgentModal() {
                 </div>
                 <form id="create-agent-form" onsubmit="event.preventDefault(); createAgent();">
                     <div class="form-group">
-                        <label for="task">Task Description</label>
-                        <textarea id="task" name="task" rows="4" required placeholder="Enter the task for the agent..."></textarea>
-                    </div>
-                    <div class="form-group">
                         <label for="work_dir">Working Directory (optional)</label>
                         <input type="text" id="work_dir" name="work_dir" placeholder="Leave empty for current dir or use . or /absolute/path">
+                    </div>
+                    <div class="form-group">
+                        <label for="task">Task Description</label>
+                        <textarea id="task" name="task" rows="4" required placeholder="Enter the task for the agent..."></textarea>
                     </div>
                     <div class="form-actions">
                         <button type="submit" class="btn btn-primary">Create Agent</button>

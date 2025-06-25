@@ -11129,7 +11129,7 @@ body::after {
     padding: var(--space-md);
     transition: all var(--transition-speed);
     position: relative;
-    overflow: hidden;
+    overflow: visible;
     width: 100%;
     backdrop-filter: blur(10px);
 }
@@ -15902,6 +15902,32 @@ body::after {
     margin: 0;
     white-space: pre-wrap;
     word-break: break-word;
+}
+
+/* Agent Planning Section */
+.agent-planning {
+    margin-top: var(--space-sm);
+    padding: var(--space-sm);
+    background: rgba(139, 0, 255, 0.1);
+    border: 1px solid rgba(139, 0, 255, 0.3);
+    border-radius: 4px;
+    font-family: 'Share Tech Mono', monospace;
+}
+
+.agent-planning .planning-header {
+    color: var(--violet-accent);
+    font-size: 0.875rem;
+    font-weight: 600;
+    margin-bottom: var(--space-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+.agent-planning .planning-content {
+    color: var(--text-secondary);
+    font-size: 0.813rem;
+    line-height: 1.5;
+    font-style: italic;
 }
 
 
@@ -39820,7 +39846,7 @@ button:hover,
 .kanban-container {
     display: flex;
     gap: var(--space-lg);
-    height: calc(100vh - 200px);
+    min-height: calc(100vh - 200px);
     padding: var(--space-md);
 }
 
@@ -39834,6 +39860,7 @@ button:hover,
     display: flex;
     flex-direction: column;
     backdrop-filter: blur(10px);
+    min-height: fit-content;
 }
 
 .kanban-header {
@@ -39859,32 +39886,10 @@ button:hover,
 
 .kanban-cards {
     flex: 1;
-    overflow-y: auto;
     display: flex;
     flex-direction: column;
     gap: var(--space-sm);
     padding-right: var(--space-xs);
-    /* Custom scrollbar for kanban columns */
-    scrollbar-width: thin;
-    scrollbar-color: var(--primary-color) transparent;
-}
-
-.kanban-cards::-webkit-scrollbar {
-    width: 6px;
-}
-
-.kanban-cards::-webkit-scrollbar-track {
-    background: rgba(0, 0, 0, 0.2);
-    border-radius: 3px;
-}
-
-.kanban-cards::-webkit-scrollbar-thumb {
-    background: var(--primary-color);
-    border-radius: 3px;
-}
-
-.kanban-cards::-webkit-scrollbar-thumb:hover {
-    background: #00cccc;
 }
 
 /* Adjust agent cards for kanban view */
@@ -39927,12 +39932,12 @@ button:hover,
 @media (max-width: 768px) {
     .kanban-container {
         flex-direction: column;
-        height: auto;
+        min-height: auto;
         gap: var(--space-md);
     }
     
     .kanban-column {
-        min-height: 300px;
+        min-height: fit-content;
     }
 }
 EOF < /dev/null

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -27,26 +28,17 @@ func safeSubstring(s string, maxLen int) string {
 	return s[:maxLen]
 }
 
-func AgentsSection(agents []AgentStatus) g.Node {
-	// Categorize agents by status
-	queuedAgents := []AgentStatus{}
-	runningAgents := []AgentStatus{}
-	finishedAgents := []AgentStatus{}
-	
-	for _, agent := range agents {
-		switch agent.Status {
-		case "queued":
-			queuedAgents = append(queuedAgents, agent)
-		case "active", "running":
-			runningAgents = append(runningAgents, agent)
-		case "finished", "failed", "killed", "stopped", "error":
-			finishedAgents = append(finishedAgents, agent)
-		default:
-			// Default to running for unknown statuses
-			runningAgents = append(runningAgents, agent)
-		}
+// agentsToJSON converts agents slice to JSON string for JavaScript
+func agentsToJSON(agents []AgentStatus) string {
+	data, err := json.Marshal(agents)
+	if err != nil {
+		return "[]"
 	}
-	
+	return string(data)
+}
+
+func AgentsSection(agents []AgentStatus) g.Node {
+	// Return empty columns - JavaScript will handle categorization and population
 	return h.Div(h.ID("agents-section"), h.Class("section"),
 		h.Div(h.Class("section-header"),
 			h.H2(g.Text("Agents")),
@@ -61,40 +53,38 @@ func AgentsSection(agents []AgentStatus) g.Node {
 			h.Div(h.Class("kanban-column"),
 				h.Div(h.Class("kanban-header"),
 					h.H3(g.Text("Queue")),
-					h.Span(h.Class("kanban-count"), g.Text(fmt.Sprintf("(%d)", len(queuedAgents)))),
+					h.Span(h.Class("kanban-count"), g.Text("(0)")),
 				),
-				h.Div(h.ID("queue-column"), h.Class("kanban-cards"),
-					g.Group(g.Map(queuedAgents, func(agent AgentStatus) g.Node {
-						return AgentCard(agent)
-					})),
-				),
+				h.Div(h.ID("queue-column"), h.Class("kanban-cards")),
 			),
-			// Running Column
+			// Planning Column
 			h.Div(h.Class("kanban-column"),
 				h.Div(h.Class("kanban-header"),
-					h.H3(g.Text("Running")),
-					h.Span(h.Class("kanban-count"), g.Text(fmt.Sprintf("(%d)", len(runningAgents)))),
+					h.H3(g.Text("Planning")),
+					h.Span(h.Class("kanban-count"), g.Text("(0)")),
 				),
-				h.Div(h.ID("running-column"), h.Class("kanban-cards"),
-					g.Group(g.Map(runningAgents, func(agent AgentStatus) g.Node {
-						return AgentCard(agent)
-					})),
+				h.Div(h.ID("planning-column"), h.Class("kanban-cards")),
+			),
+			// Coding Column
+			h.Div(h.Class("kanban-column"),
+				h.Div(h.Class("kanban-header"),
+					h.H3(g.Text("Coding")),
+					h.Span(h.Class("kanban-count"), g.Text("(0)")),
 				),
+				h.Div(h.ID("running-column"), h.Class("kanban-cards")),
 			),
 			// Finished Column
 			h.Div(h.Class("kanban-column"),
 				h.Div(h.Class("kanban-header"),
 					h.H3(g.Text("Finished")),
-					h.Span(h.Class("kanban-count"), g.Text(fmt.Sprintf("(%d)", len(finishedAgents)))),
+					h.Span(h.Class("kanban-count"), g.Text("(0)")),
 				),
-				h.Div(h.ID("finished-column"), h.Class("kanban-cards"),
-					g.Group(g.Map(finishedAgents, func(agent AgentStatus) g.Node {
-						return AgentCard(agent)
-					})),
-				),
+				h.Div(h.ID("finished-column"), h.Class("kanban-cards")),
 			),
 		),
 		CreateAgentModal(),
+		// Store agents data for JavaScript to use on initial load
+		h.Script(g.Raw(fmt.Sprintf("window.initialAgentsData = %s;", agentsToJSON(agents)))),
 	)
 }
 
@@ -125,14 +115,6 @@ func AgentCard(agent AgentStatus) g.Node {
 				h.Span(h.Class("stat-label"), g.Text("Started:")),
 				h.Span(h.Class("stat-value"), g.Text(agent.StartTime.Format("15:04:05"))),
 			),
-			h.Div(h.Class("stat"),
-				h.Span(h.Class("stat-label"), g.Text("Messages:")),
-				h.Span(h.Class("stat-value stat-messages"), g.Text(fmt.Sprintf("%d", agent.MessagesSent))),
-			),
-			h.Div(h.Class("stat"),
-				h.Span(h.Class("stat-label"), g.Text("Queue:")),
-				h.Span(h.Class("stat-value stat-queue"), g.Text(agent.QueueStatus)),
-			),
 		),
 
 		h.Div(h.Class("agent-actions"),
@@ -159,6 +141,16 @@ func CreateAgentModal() g.Node {
 				g.Attr("onsubmit", "event.preventDefault(); createAgent();"),
 
 				h.Div(h.Class("form-group"),
+					h.Label(h.For("work_dir"), g.Text("Working Directory (optional)")),
+					h.Input(
+						h.Type("text"),
+						h.ID("work_dir"),
+						h.Name("work_dir"),
+						h.Placeholder("Leave empty for current dir or use . or /absolute/path"),
+					),
+				),
+
+				h.Div(h.Class("form-group"),
 					h.Label(h.For("task"), g.Text("Task Description")),
 					h.Textarea(
 						h.ID("task"),
@@ -166,16 +158,6 @@ func CreateAgentModal() g.Node {
 						h.Rows("4"),
 						h.Required(),
 						h.Placeholder("Enter the task for the agent..."),
-					),
-				),
-
-				h.Div(h.Class("form-group"),
-					h.Label(h.For("work_dir"), g.Text("Working Directory (optional)")),
-					h.Input(
-						h.Type("text"),
-						h.ID("work_dir"),
-						h.Name("work_dir"),
-						h.Placeholder("Leave empty for current dir or use . or /absolute/path"),
 					),
 				),
 
