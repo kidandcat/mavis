@@ -64,79 +64,134 @@ function initializeEventSource() {
 function updateAgentsUI(agents) {
     if (currentPage !== 'agents') return;
     
-    const agentsGrid = document.getElementById('agents-grid');
-    if (!agentsGrid) return;
+    // Categorize agents by status
+    const queuedAgents = [];
+    const runningAgents = [];
+    const finishedAgents = [];
     
-    // Create a set of current agent IDs from the server
+    agents.forEach(agent => {
+        switch (agent.Status) {
+            case 'queued':
+                queuedAgents.push(agent);
+                break;
+            case 'active':
+            case 'running':
+                runningAgents.push(agent);
+                break;
+            case 'finished':
+            case 'failed':
+            case 'killed':
+            case 'stopped':
+            case 'error':
+                finishedAgents.push(agent);
+                break;
+            default:
+                // Default to running for unknown statuses
+                runningAgents.push(agent);
+        }
+    });
+    
+    // Update each column
+    updateColumn('queue-column', queuedAgents);
+    updateColumn('running-column', runningAgents);
+    updateColumn('finished-column', finishedAgents);
+    
+    // Update counts
+    updateColumnCount('Queue', queuedAgents.length);
+    updateColumnCount('Running', runningAgents.length);
+    updateColumnCount('Finished', finishedAgents.length);
+}
+
+function updateColumn(columnId, agents) {
+    const column = document.getElementById(columnId);
+    if (!column) return;
+    
+    // Create a set of current agent IDs in this column
     const currentAgentIds = new Set(agents.map(agent => agent.ID));
     
-    // Remove agents that are no longer in the list
-    const existingCards = agentsGrid.querySelectorAll('.agent-card');
+    // Remove agents that are no longer in this column
+    const existingCards = column.querySelectorAll('.agent-card');
     existingCards.forEach(card => {
         const agentId = card.getAttribute('data-agent-id');
         if (!currentAgentIds.has(agentId)) {
             card.remove();
-            // Agent removed from UI
         }
     });
     
     // Update existing agents and add new ones
     agents.forEach(agent => {
         const card = document.getElementById(`agent-${agent.ID}`);
-        if (card) {
-            // If status changed to finished, recreate the entire card
-            const currentStatus = card.querySelector('.agent-status')?.textContent;
-            if (currentStatus !== 'finished' && agent.Status === 'finished') {
-                // Replace the entire card with the new finished format
-                const newCard = createAgentCard(agent);
-                card.outerHTML = newCard;
-                return;
-            }
-            
-            // Update existing card for non-finished agents
-            const statusElem = card.querySelector('.agent-status');
-            if (statusElem) statusElem.textContent = agent.Status;
-            
-            // Update stats
-            const messagesElem = card.querySelector('.stat-messages');
-            if (messagesElem) messagesElem.textContent = agent.MessagesSent;
-            
-            const queueElem = card.querySelector('.stat-queue');
-            if (queueElem) queueElem.textContent = agent.QueueStatus;
-            
-            // Update status class
-            card.className = `agent-card ${getStatusClass(agent)}`;
-            
-            // Update actions (stop button for running, delete button for completed)
-            const actionsDiv = card.querySelector('.agent-actions');
-            if (actionsDiv) {
-                if (agent.Status === 'active' || agent.Status === 'running') {
-                    if (!actionsDiv.querySelector('.btn-danger')) {
-                        actionsDiv.innerHTML = `<button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); stopAgent('${agent.ID}')">Stop</button>`;
-                    }
-                } else if (agent.Status === 'finished' || agent.Status === 'failed' || agent.Status === 'killed' || agent.Status === 'stopped') {
-                    // Show delete button for completed agents
-                    actionsDiv.innerHTML = `<button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); deleteAgent('${agent.ID}')">Delete</button>`;
-                } else {
-                    actionsDiv.innerHTML = '';
-                }
-            }
-            
-            // Update progress for running agents
-            updateAgentProgress(agent.ID, agent.Status);
+        if (card && card.parentElement.id === columnId) {
+            // Update existing card in same column
+            updateAgentCard(card, agent);
         } else {
-            // Add new agent card
+            // Add new card or move from another column
             const newCard = createAgentCard(agent);
-            agentsGrid.insertAdjacentHTML('beforeend', newCard);
-            
-            // Fetch progress for new running agents
-            if (agent.Status === 'running' || agent.Status === 'active') {
-                updateAgentProgress(agent.ID, agent.Status);
+            if (card) {
+                // Remove from old column
+                card.remove();
+            }
+            // Add to new column
+            column.insertAdjacentHTML('beforeend', newCard);
+            // Update progress for newly added cards
+            updateAgentProgress(agent.ID, agent.Status);
+        }
+    });
+}
+
+function updateColumnCount(columnName, count) {
+    const headers = document.querySelectorAll('.kanban-header h3');
+    headers.forEach(header => {
+        if (header.textContent === columnName) {
+            const countSpan = header.nextElementSibling;
+            if (countSpan && countSpan.classList.contains('kanban-count')) {
+                countSpan.textContent = `(${count})`;
             }
         }
     });
+}
+
+function updateAgentCard(card, agent) {
+    // If status changed to finished, recreate the entire card
+    const currentStatus = card.querySelector('.agent-status')?.textContent;
+    if (currentStatus !== 'finished' && agent.Status === 'finished') {
+        // Replace the entire card with the new finished format
+        const newCard = createAgentCard(agent);
+        card.outerHTML = newCard;
+        return;
+    }
     
-    // Progress is now updated inline for each agent
+    // Update existing card for non-finished agents
+    const statusElem = card.querySelector('.agent-status');
+    if (statusElem) statusElem.textContent = agent.Status;
+    
+    // Update stats
+    const messagesElem = card.querySelector('.stat-messages');
+    if (messagesElem) messagesElem.textContent = agent.MessagesSent;
+    
+    const queueElem = card.querySelector('.stat-queue');
+    if (queueElem) queueElem.textContent = agent.QueueStatus;
+    
+    // Update status class
+    card.className = `agent-card ${getStatusClass(agent)}`;
+    
+    // Update actions (stop button for running, delete button for completed)
+    const actionsDiv = card.querySelector('.agent-actions');
+    if (actionsDiv) {
+        if (agent.Status === 'active' || agent.Status === 'running') {
+            if (!actionsDiv.querySelector('.btn-danger')) {
+                actionsDiv.innerHTML = `<button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); stopAgent('${agent.ID}')">Stop</button>`;
+            }
+        } else if (agent.Status === 'finished' || agent.Status === 'failed' || agent.Status === 'killed' || agent.Status === 'stopped') {
+            // Show delete button for completed agents
+            actionsDiv.innerHTML = `<button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); deleteAgent('${agent.ID}')">Delete</button>`;
+        } else {
+            actionsDiv.innerHTML = '';
+        }
+    }
+    
+    // Update progress for running agents
+    updateAgentProgress(agent.ID, agent.Status);
 }
 
 function getStatusClass(agent) {
@@ -303,15 +358,23 @@ async function createAgent() {
             const queuePos = data.QueuePosition || 'unknown';
             // alert(`Agent queued! Position in queue: ${queuePos}. It will start automatically when the current agent in this directory completes.`);
             
-            // Add queued agent to grid
-            const grid = document.getElementById('agents-grid');
-            const newCard = createAgentCard(data);
-            grid.insertAdjacentHTML('beforeend', newCard);
+            // Add queued agent to queue column
+            const queueColumn = document.getElementById('queue-column');
+            if (queueColumn) {
+                const newCard = createAgentCard(data);
+                queueColumn.insertAdjacentHTML('beforeend', newCard);
+                // Update progress for newly created agent
+                updateAgentProgress(data.ID, data.Status);
+            }
         } else {
-            // Add new agent to grid
-            const grid = document.getElementById('agents-grid');
-            const newCard = createAgentCard(data);
-            grid.insertAdjacentHTML('beforeend', newCard);
+            // Add new agent to running column
+            const runningColumn = document.getElementById('running-column');
+            if (runningColumn) {
+                const newCard = createAgentCard(data);
+                runningColumn.insertAdjacentHTML('beforeend', newCard);
+                // Update progress for newly created agent
+                updateAgentProgress(data.ID, data.Status);
+            }
         }
         
         // Reset form and close modal
@@ -374,14 +437,70 @@ async function deleteAgent(agentID) {
 
 // Rendering functions
 function renderAgentsSection(agents) {
+    // Categorize agents by status
+    const queuedAgents = [];
+    const runningAgents = [];
+    const finishedAgents = [];
+    
+    agents.forEach(agent => {
+        switch (agent.Status) {
+            case 'queued':
+                queuedAgents.push(agent);
+                break;
+            case 'active':
+            case 'running':
+                runningAgents.push(agent);
+                break;
+            case 'finished':
+            case 'failed':
+            case 'killed':
+            case 'stopped':
+            case 'error':
+                finishedAgents.push(agent);
+                break;
+            default:
+                // Default to running for unknown statuses
+                runningAgents.push(agent);
+        }
+    });
+    
     return `
         <div id="agents-section" class="section">
             <div class="section-header">
-                <h2>Active Agents</h2>
+                <h2>Agents</h2>
                 <button class="btn btn-primary" onclick="showCreateAgentModal()">+ New Agent</button>
             </div>
-            <div id="agents-grid" class="agents-grid">
-                ${agents.map(agent => createAgentCard(agent)).join('')}
+            <div class="kanban-container">
+                <!-- Queue Column -->
+                <div class="kanban-column">
+                    <div class="kanban-header">
+                        <h3>Queue</h3>
+                        <span class="kanban-count">(${queuedAgents.length})</span>
+                    </div>
+                    <div id="queue-column" class="kanban-cards">
+                        ${queuedAgents.map(agent => createAgentCard(agent)).join('')}
+                    </div>
+                </div>
+                <!-- Running Column -->
+                <div class="kanban-column">
+                    <div class="kanban-header">
+                        <h3>Running</h3>
+                        <span class="kanban-count">(${runningAgents.length})</span>
+                    </div>
+                    <div id="running-column" class="kanban-cards">
+                        ${runningAgents.map(agent => createAgentCard(agent)).join('')}
+                    </div>
+                </div>
+                <!-- Finished Column -->
+                <div class="kanban-column">
+                    <div class="kanban-header">
+                        <h3>Finished</h3>
+                        <span class="kanban-count">(${finishedAgents.length})</span>
+                    </div>
+                    <div id="finished-column" class="kanban-cards">
+                        ${finishedAgents.map(agent => createAgentCard(agent)).join('')}
+                    </div>
+                </div>
             </div>
             ${createAgentModal()}
         </div>

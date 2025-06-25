@@ -39830,3 +39830,123 @@ button:hover,
         margin-top: var(--space-md);
     }
 }
+/* Kanban Layout Styles */
+.kanban-container {
+    display: flex;
+    gap: var(--space-lg);
+    height: calc(100vh - 200px);
+    padding: var(--space-md);
+}
+
+.kanban-column {
+    flex: 1;
+    min-width: 300px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 12px;
+    border: 1px solid rgba(0, 255, 255, 0.1);
+    padding: var(--space-md);
+    display: flex;
+    flex-direction: column;
+    backdrop-filter: blur(10px);
+}
+
+.kanban-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-md);
+    padding-bottom: var(--space-sm);
+    border-bottom: 2px solid rgba(0, 255, 255, 0.2);
+}
+
+.kanban-header h3 {
+    margin: 0;
+    color: var(--primary-color);
+    font-size: 1.2rem;
+    font-weight: 600;
+}
+
+.kanban-count {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.kanban-cards {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    padding-right: var(--space-xs);
+    /* Custom scrollbar for kanban columns */
+    scrollbar-width: thin;
+    scrollbar-color: var(--primary-color) transparent;
+}
+
+.kanban-cards::-webkit-scrollbar {
+    width: 6px;
+}
+
+.kanban-cards::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 3px;
+}
+
+.kanban-cards::-webkit-scrollbar-thumb {
+    background: var(--primary-color);
+    border-radius: 3px;
+}
+
+.kanban-cards::-webkit-scrollbar-thumb:hover {
+    background: #00cccc;
+}
+
+/* Adjust agent cards for kanban view */
+.kanban-cards .agent-card {
+    width: 100%;
+    margin: 0;
+    cursor: move;
+    transition: all var(--transition-speed);
+}
+
+.kanban-cards .agent-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 20px rgba(0, 255, 255, 0.3);
+}
+
+/* Column-specific styling */
+#queue-column .agent-card {
+    border-left: 3px solid var(--warning-color);
+}
+
+#running-column .agent-card {
+    border-left: 3px solid var(--info-color);
+}
+
+#finished-column .agent-card {
+    border-left: 3px solid var(--success-color);
+}
+
+#finished-column .agent-card.failed {
+    border-left: 3px solid var(--danger-color);
+}
+
+/* Responsive kanban */
+@media (max-width: 1200px) {
+    .kanban-column {
+        min-width: 280px;
+    }
+}
+
+@media (max-width: 768px) {
+    .kanban-container {
+        flex-direction: column;
+        height: auto;
+        gap: var(--space-md);
+    }
+    
+    .kanban-column {
+        min-height: 300px;
+    }
+}
+EOF < /dev/null

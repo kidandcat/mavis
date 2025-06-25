@@ -264,6 +264,13 @@ func createCodeAgent(task, workDir string) (string, error) {
 		return "", err
 	}
 
+	// Send Telegram notification about the agent launch
+	if b != nil && AdminUserID != 0 {
+		message := fmt.Sprintf("🌐 Code agent launched from Web UI!\n🆔 ID: `%s`\n📝 Task: %s\n📁 Directory: %s\n\nUse `/status %s` to check status.",
+			agentID, task, workDir, agentID)
+		core.SendMessage(context.Background(), b, AdminUserID, message)
+	}
+
 	return agentID, nil
 }
 
@@ -518,6 +525,13 @@ func CreateCodeAgent(ctx context.Context, workDir, task string, images []string)
 		"directory": workDir,
 		"task":      task,
 	})
+
+	// Send Telegram notification about the agent launch
+	if b != nil && AdminUserID != 0 {
+		message := fmt.Sprintf("🌐 Code agent launched from Web UI!\n🆔 ID: `%s`\n📝 Task: %s\n📁 Directory: %s\n\nUse `/status %s` to check status.",
+			agentID, task, workDir, agentID)
+		core.SendMessage(ctx, b, AdminUserID, message)
+	}
 
 	return agentID, nil
 }

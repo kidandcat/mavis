@@ -28,34 +28,73 @@ func safeSubstring(s string, maxLen int) string {
 }
 
 func AgentsSection(agents []AgentStatus) g.Node {
-	return h.Div(h.ID("agents-section"), h.Class("section agents-container"),
-		h.Div(h.Class("agents-panel"),
-			h.Div(h.Class("section-header"),
-				h.H2(g.Text("Active Agents")),
-				h.Button(
-					h.Class("btn btn-primary ms-3"),
-					g.Attr("onclick", "showCreateAgentModal()"),
-					g.Text("+ New Agent"),
+	// Categorize agents by status
+	queuedAgents := []AgentStatus{}
+	runningAgents := []AgentStatus{}
+	finishedAgents := []AgentStatus{}
+	
+	for _, agent := range agents {
+		switch agent.Status {
+		case "queued":
+			queuedAgents = append(queuedAgents, agent)
+		case "active", "running":
+			runningAgents = append(runningAgents, agent)
+		case "finished", "failed", "killed", "stopped", "error":
+			finishedAgents = append(finishedAgents, agent)
+		default:
+			// Default to running for unknown statuses
+			runningAgents = append(runningAgents, agent)
+		}
+	}
+	
+	return h.Div(h.ID("agents-section"), h.Class("section"),
+		h.Div(h.Class("section-header"),
+			h.H2(g.Text("Agents")),
+			h.Button(
+				h.Class("btn btn-primary ms-3"),
+				g.Attr("onclick", "showCreateAgentModal()"),
+				g.Text("+ New Agent"),
+			),
+		),
+		h.Div(h.Class("kanban-container"),
+			// Queue Column
+			h.Div(h.Class("kanban-column"),
+				h.Div(h.Class("kanban-header"),
+					h.H3(g.Text("Queue")),
+					h.Span(h.Class("kanban-count"), g.Text(fmt.Sprintf("(%d)", len(queuedAgents)))),
+				),
+				h.Div(h.ID("queue-column"), h.Class("kanban-cards"),
+					g.Group(g.Map(queuedAgents, func(agent AgentStatus) g.Node {
+						return AgentCard(agent)
+					})),
 				),
 			),
-			h.Div(h.ID("agents-grid"), h.Class("agents-grid"),
-				g.Group(g.Map(agents, func(agent AgentStatus) g.Node {
-					return AgentCard(agent)
-				})),
+			// Running Column
+			h.Div(h.Class("kanban-column"),
+				h.Div(h.Class("kanban-header"),
+					h.H3(g.Text("Running")),
+					h.Span(h.Class("kanban-count"), g.Text(fmt.Sprintf("(%d)", len(runningAgents)))),
+				),
+				h.Div(h.ID("running-column"), h.Class("kanban-cards"),
+					g.Group(g.Map(runningAgents, func(agent AgentStatus) g.Node {
+						return AgentCard(agent)
+					})),
+				),
 			),
-			CreateAgentModal(),
-		),
-		h.Div(h.ID("agent-status-panel"), h.Class("agent-status-panel"),
-			h.Div(h.Class("status-panel-header"),
-				h.H3(g.Text("Agent Status")),
-				h.Span(h.Class("status-panel-subtitle"), g.Text("Select an agent to view status")),
-			),
-			h.Div(h.ID("agent-status-content"), h.Class("agent-status-content"),
-				h.Div(h.Class("status-placeholder"),
-					h.P(g.Text("No agent selected")),
+			// Finished Column
+			h.Div(h.Class("kanban-column"),
+				h.Div(h.Class("kanban-header"),
+					h.H3(g.Text("Finished")),
+					h.Span(h.Class("kanban-count"), g.Text(fmt.Sprintf("(%d)", len(finishedAgents)))),
+				),
+				h.Div(h.ID("finished-column"), h.Class("kanban-cards"),
+					g.Group(g.Map(finishedAgents, func(agent AgentStatus) g.Node {
+						return AgentCard(agent)
+					})),
 				),
 			),
 		),
+		CreateAgentModal(),
 	)
 }
 
@@ -71,7 +110,6 @@ func AgentCard(agent AgentStatus) g.Node {
 		h.ID(fmt.Sprintf("agent-%s", agent.ID)),
 		h.Class("agent-card "+statusClass),
 		g.Attr("data-agent-id", agent.ID),
-		g.Attr("onclick", fmt.Sprintf("selectAgent('%s')", agent.ID)),
 
 		h.Div(h.Class("agent-header"),
 			h.H3(g.Text(fmt.Sprintf("Agent %s", safeSubstring(agent.ID, 8)))),
