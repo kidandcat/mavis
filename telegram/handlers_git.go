@@ -880,3 +880,108 @@ PR URL: %s`, prURL, prURL, prURL, prURL, prURL, prURL)
 	core.SendMessage(ctx, b, chatID, fmt.Sprintf("✅ PR review agent launched!\n🆔 ID: `%s`\n🔗 PR: %s\n📁 Repository: %s\n\nThe agent will:\n• Analyze the PR changes\n• Post a review comment on the PR\n• Approve the PR if it's ready to merge\n\nUse `/status %s` to check status.",
 		agentID, prURL, directory, agentID))
 }
+
+func handleApproveCommand(ctx context.Context, message *models.Message) {
+	parts := strings.Fields(message.Text)
+	if len(parts) < 3 {
+		core.SendMessage(ctx, b, message.Chat.ID, "❌ Please provide workspace directory and PR URL.\nUsage: `/approve <directory> <pr_url>`\n\nExample: `/approve ~/myproject https://github.com/owner/repo/pull/123`")
+		return
+	}
+
+	directory := strings.TrimSpace(parts[1])
+	prURL := strings.TrimSpace(parts[2])
+
+	if directory == "" || prURL == "" {
+		core.SendMessage(ctx, b, message.Chat.ID, "❌ Both directory and PR URL are required.\n\nExample: /approve ~/myproject https://github.com/owner/repo/pull/123")
+		return
+	}
+
+	launchPRApprovalAgent(ctx, message.Chat.ID, directory, prURL)
+}
+
+func launchPRApprovalAgent(ctx context.Context, chatID int64, directory, prURL string) {
+	// Resolve the directory path relative to home directory
+	absDir, err := core.ResolvePath(directory)
+	if err != nil {
+		core.SendMessage(ctx, b, chatID, fmt.Sprintf("❌ Error resolving directory path: %v", err))
+		return
+	}
+
+	// Check if directory exists
+	info, err := os.Stat(absDir)
+	if err != nil {
+		core.SendMessage(ctx, b, chatID, fmt.Sprintf("❌ Directory not found: %s", absDir))
+		return
+	}
+	if !info.IsDir() {
+		core.SendMessage(ctx, b, chatID, fmt.Sprintf("❌ Path is not a directory: %s", absDir))
+		return
+	}
+
+	// Check if it's a git repository
+	gitDir := filepath.Join(absDir, ".git")
+	if _, err := os.Stat(gitDir); os.IsNotExist(err) {
+		core.SendMessage(ctx, b, chatID, fmt.Sprintf("❌ Directory is not a git repository: %s", absDir))
+		return
+	}
+
+	core.SendMessage(ctx, b, chatID, fmt.Sprintf("🔍 Preparing PR approval for %s...", prURL))
+
+	// Prepare the PR approval prompt - perform checks but always approve
+	prApprovalPrompt := fmt.Sprintf(`IMPORTANT PR REVIEW AND APPROVAL INSTRUCTIONS:
+You must review this pull request and then approve it using the gh CLI.
+
+1. Get PR information:
+   - gh pr view %s
+   - gh pr diff %s
+   - gh pr checks %s
+
+2. Analyze the code for issues:
+   - Bugs, security vulnerabilities, logic errors
+   - Breaking changes or regressions
+   - Missing critical tests for new functionality
+   - Verify that the code follows project conventions and best practices
+   - Check for missing tests
+   
+   DO NOT comment on:
+   - Code style preferences
+   - Minor improvements that work correctly
+   - Things that are already good
+
+3. Post your review using EXACTLY ONE command:
+   
+   If NO ISSUES found:
+   gh pr review %s --approve --body "LGTM ✅"
+   
+   If ISSUES found (but still approve):
+   gh pr review %s --approve --body "LGTM ✅
+
+However, I found the following issues that should be addressed in a follow-up:
+- Issue 1: [specific problem at file:line]
+- Issue 2: [specific problem at file:line]"
+
+CRITICAL RULES:
+- You MUST always use the --approve flag regardless of issues found
+- ONLY list actual problems that need fixing
+- Execute ONLY ONE gh pr review command
+- DO NOT run the command twice
+- Always approve even if there are issues
+
+PR URL: %s`, prURL, prURL, prURL, prURL, prURL, prURL)
+
+	core.SendMessage(ctx, b, chatID, fmt.Sprintf("🚀 Launching PR approval agent...\n📁 Repository: %s\n🔗 PR: %s", absDir, prURL))
+
+	// Launch the agent with the PR approval prompt and unique plan file
+	planFilename := generateUniquePlanFilename("PR_APPROVE")
+	agentID, err := agentManager.LaunchAgentWithPlanFile(ctx, absDir, prApprovalPrompt, planFilename)
+	if err != nil {
+		core.SendMessage(ctx, b, chatID, fmt.Sprintf("❌ Failed to launch agent: %v", err))
+		return
+	}
+
+	// Register the agent for this user to receive notifications
+	RegisterAgentForUser(agentID, AdminUserID)
+
+	core.SendMessage(ctx, b, chatID, fmt.Sprintf("✅ PR approval agent launched!\n🆔 ID: `%s`\n🔗 PR: %s\n📁 Repository: %s\n\nThe agent will:\n• Review the PR for issues\n• Post findings as comments\n• Always approve the PR (even with issues)\n\nUse `/status %s` to check status.",
+		agentID, prURL, directory, agentID))
+}

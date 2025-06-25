@@ -371,7 +371,17 @@ func performRecoveryCheck(b *bot.Bot) {
 
 				if !actualAgent.IsProcessAlive() {
 					log.Printf("[Recovery] DETECTED: Agent %s process is dead, marking as failed", agent.ID)
-					actualAgent.MarkAsFailedWithDetails("Process died unexpectedly (detected by recovery check)")
+					
+					// Capture more context about the failure
+					errorDetails := fmt.Sprintf("Process died unexpectedly (detected by recovery check)\n\n"+
+						"Agent ID: %s\n"+
+						"Running Duration: %v\n"+
+						"Last Known Status: %s",
+						agent.ID, 
+						time.Since(agent.StartTime).Round(time.Second),
+						agent.Status)
+					
+					actualAgent.MarkAsFailedWithDetails(errorDetails)
 					deadAgents++
 
 					// The monitor will pick up the failed status and handle notification/removal

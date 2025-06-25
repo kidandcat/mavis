@@ -57,6 +57,9 @@ func HandleMessage(ctx context.Context, message *models.Message) {
 			case "/pr":
 				handlePRCommand(ctx, message)
 				return
+			case "/approve":
+				handleApproveCommand(ctx, message)
+				return
 			case "/restart":
 				handleRestartCommand(ctx, message)
 				return

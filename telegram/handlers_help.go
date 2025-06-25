@@ -26,6 +26,7 @@ func handleHelpCommand(ctx context.Context, message *models.Message) {
 		"• `/review <directory>` - Review pending changes in workspace\n" +
 		"• `/review <directory> <pr_url>` - Review PR and send result to Telegram\n" +
 		"• `/pr <directory> <pr_url>` - Review PR, post comment, and approve if ready\n" +
+		"• `/approve <directory> <pr_url>` - Review PR and always approve (with comments)\n" +
 		"• `/ps` - List all active code agents\n" +
 		"• `/status <agent_id>` - Get details of a specific agent\n" +
 		"• `/stop <agent_id>` - Kill a running agent\n\n" +
@@ -68,6 +69,7 @@ func handleHelpCommand(ctx context.Context, message *models.Message) {
 		"• `/review ~/myproject` - Review pending changes\n" +
 		"• `/review ~/myproject https://github.com/owner/repo/pull/123` - Review PR\n" +
 		"• `/pr ~/myproject https://github.com/owner/repo/pull/123` - Review PR & post comment\n" +
+		"• `/approve ~/myproject https://github.com/owner/repo/pull/123` - Review & approve PR\n" +
 		"• `/run ~/myapp npm test` - Run tests in myapp workspace\n" +
 		"• `/run . python script.py --verbose` - Run Python script in current dir"
 

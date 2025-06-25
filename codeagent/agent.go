@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -133,7 +134,28 @@ func (a *Agent) Start(ctx context.Context) error {
 	if err := a.cmd.Start(); err != nil {
 		a.mu.Lock()
 		a.Status = StatusFailed
-		a.Error = fmt.Sprintf("Failed to start command: %v", err)
+		
+		// Build detailed error message
+		var errorBuilder strings.Builder
+		errorBuilder.WriteString(fmt.Sprintf("Failed to start command: %v", err))
+		
+		// Check for common startup errors
+		if strings.Contains(err.Error(), "executable file not found") || strings.Contains(err.Error(), "no such file") {
+			errorBuilder.WriteString("\n\n⚠️ The 'claude' command was not found. Please ensure:")
+			errorBuilder.WriteString("\n1. Claude CLI is installed")
+			errorBuilder.WriteString("\n2. Claude CLI is in your PATH") 
+			errorBuilder.WriteString("\n3. You can run 'claude --version' from the terminal")
+		} else if strings.Contains(err.Error(), "permission denied") {
+			errorBuilder.WriteString("\n\n⚠️ Permission denied. Please check:")
+			errorBuilder.WriteString("\n1. The claude command is executable")
+			errorBuilder.WriteString("\n2. You have permission to execute commands in the working directory")
+		}
+		
+		errorBuilder.WriteString(fmt.Sprintf("\n\nCommand: %s", cmdString))
+		errorBuilder.WriteString(fmt.Sprintf("\nWorking Directory: %s", a.Folder))
+		errorBuilder.WriteString(fmt.Sprintf("\nFailure Time: %s", time.Now().Format("2006-01-02 15:04:05")))
+		
+		a.Error = errorBuilder.String()
 		a.EndTime = time.Now()
 		a.mu.Unlock()
 		return err
@@ -206,6 +228,43 @@ func (a *Agent) Start(ctx context.Context) error {
 			errorBuilder.WriteString(fmt.Sprintf("\nProcess State: %s", a.cmd.ProcessState.String()))
 			if a.cmd.ProcessState.ExitCode() >= 0 {
 				errorBuilder.WriteString(fmt.Sprintf("\nExit Code: %d", a.cmd.ProcessState.ExitCode()))
+				
+				// Add common exit code explanations
+				switch a.cmd.ProcessState.ExitCode() {
+				case 1:
+					errorBuilder.WriteString("\n💡 Exit code 1: General errors (syntax errors, incorrect usage)")
+				case 2:
+					errorBuilder.WriteString("\n💡 Exit code 2: Misuse of shell builtins")
+				case 126:
+					errorBuilder.WriteString("\n💡 Exit code 126: Command cannot execute (permission problem or not executable)")
+				case 127:
+					errorBuilder.WriteString("\n💡 Exit code 127: Command not found")
+				case 128:
+					errorBuilder.WriteString("\n💡 Exit code 128: Invalid argument to exit")
+				case 130:
+					errorBuilder.WriteString("\n💡 Exit code 130: Script terminated by Ctrl+C")
+				case 137:
+					errorBuilder.WriteString("\n💡 Exit code 137: Process killed (SIGKILL) - possibly out of memory")
+				case 139:
+					errorBuilder.WriteString("\n💡 Exit code 139: Segmentation fault (SIGSEGV)")
+				}
+			}
+			
+			// Check for signals
+			if a.cmd.ProcessState.Sys() != nil {
+				if ws, ok := a.cmd.ProcessState.Sys().(syscall.WaitStatus); ok {
+					if ws.Signaled() {
+						sig := ws.Signal()
+						errorBuilder.WriteString(fmt.Sprintf("\nTerminated by signal: %s", sig))
+						
+						switch sig {
+						case syscall.SIGKILL:
+							errorBuilder.WriteString("\n⚠️ Process was forcefully killed - check system resources (memory, disk space)")
+						case syscall.SIGSEGV:
+							errorBuilder.WriteString("\n⚠️ Segmentation fault - process crashed")
+						}
+					}
+				}
 			}
 		}
 
@@ -215,8 +274,21 @@ func (a *Agent) Start(ctx context.Context) error {
 
 		errorBuilder.WriteString(fmt.Sprintf("\nWorking Directory: %s", a.Folder))
 
+		// Check if claude command exists
+		if cmdErr.Error() == "exit status 127" || strings.Contains(cmdErr.Error(), "executable file not found") {
+			errorBuilder.WriteString("\n\n⚠️ The 'claude' command was not found. Please ensure:")
+			errorBuilder.WriteString("\n1. Claude CLI is installed")
+			errorBuilder.WriteString("\n2. Claude CLI is in your PATH")
+			errorBuilder.WriteString("\n3. You can run 'claude --version' from the terminal")
+		}
+
 		if output != "" {
-			errorBuilder.WriteString(fmt.Sprintf("\nProcess Output:\n%s", output))
+			// Show last part of output if very long
+			outputToShow := output
+			if len(outputToShow) > 2000 {
+				outputToShow = "...(truncated)...\n" + outputToShow[len(outputToShow)-2000:]
+			}
+			errorBuilder.WriteString(fmt.Sprintf("\nProcess Output:\n%s", outputToShow))
 		}
 
 		errorBuilder.WriteString(fmt.Sprintf("\nFailure Time: %s", time.Now().Format("2006-01-02 15:04:05")))
@@ -379,6 +451,28 @@ func (a *Agent) MarkAsFailedWithDetails(errorMsg string) {
 			if a.cmd.ProcessState.ExitCode() >= 0 {
 				detailedError.WriteString(fmt.Sprintf("\nExit Code: %d", a.cmd.ProcessState.ExitCode()))
 			}
+			
+			// Check for specific system signals that might indicate why the process died
+			if a.cmd.ProcessState.Sys() != nil {
+				if ws, ok := a.cmd.ProcessState.Sys().(syscall.WaitStatus); ok {
+					if ws.Signaled() {
+						sig := ws.Signal()
+						detailedError.WriteString(fmt.Sprintf("\nTerminated by signal: %s", sig))
+						
+						// Add explanations for common signals
+						switch sig {
+						case syscall.SIGKILL:
+							detailedError.WriteString("\n⚠️ Process was forcefully killed (SIGKILL) - possibly due to OOM killer or manual termination")
+						case syscall.SIGSEGV:
+							detailedError.WriteString("\n⚠️ Segmentation fault (SIGSEGV) - process crashed due to memory access violation")
+						case syscall.SIGTERM:
+							detailedError.WriteString("\n⚠️ Process was terminated (SIGTERM) - requested to shut down")
+						case syscall.SIGABRT:
+							detailedError.WriteString("\n⚠️ Process aborted (SIGABRT) - likely due to assertion failure")
+						}
+					}
+				}
+			}
 		}
 
 		// Include the command that was executed
@@ -396,7 +490,12 @@ func (a *Agent) MarkAsFailedWithDetails(errorMsg string) {
 
 	// Include any output we've captured so far
 	if a.Output != "" {
-		detailedError.WriteString(fmt.Sprintf("\nCaptured Output:\n%s", a.Output))
+		// Limit output to last 1000 characters if very long
+		outputToShow := a.Output
+		if len(outputToShow) > 1000 {
+			outputToShow = "...(truncated)...\n" + outputToShow[len(outputToShow)-1000:]
+		}
+		detailedError.WriteString(fmt.Sprintf("\nLast Captured Output:\n%s", outputToShow))
 	}
 
 	// Include timestamp
