@@ -15896,8 +15896,6 @@ body::after {
     color: var(--text-secondary);
     font-size: 0.813rem;
     line-height: 1.5;
-    max-height: 150px;
-    overflow-y: auto;
 }
 
 .agent-progress .progress-content pre {
@@ -15906,18 +15904,6 @@ body::after {
     word-break: break-word;
 }
 
-.agent-progress .progress-content::-webkit-scrollbar {
-    width: 4px;
-}
-
-.agent-progress .progress-content::-webkit-scrollbar-track {
-    background: rgba(0, 0, 0, 0.2);
-}
-
-.agent-progress .progress-content::-webkit-scrollbar-thumb {
-    background: var(--primary-color);
-    border-radius: 2px;
-}
 
 /* Glitch Effects */
 .glitch {

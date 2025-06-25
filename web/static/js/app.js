@@ -100,6 +100,14 @@ function updateAgentsUI(agents) {
     updateColumnCount('Queue', queuedAgents.length);
     updateColumnCount('Running', runningAgents.length);
     updateColumnCount('Finished', finishedAgents.length);
+    
+    // Update progress for all agents that should show progress
+    // This ensures progress is displayed after page refresh
+    agents.forEach(agent => {
+        if (agent.Status === 'running' || agent.Status === 'active' || agent.Status === 'queued') {
+            updateAgentProgress(agent.ID, agent.Status);
+        }
+    });
 }
 
 function updateColumn(columnId, agents) {
