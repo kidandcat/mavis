@@ -62,6 +62,12 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 	agents := GetAllAgentsStatusJSON()
 	agentStatuses := make([]AgentStatus, len(agents))
 	for i, agent := range agents {
+		// Get progress for running agents
+		progress := ""
+		if agent.Status == "running" || agent.Status == "active" {
+			progress = getAgentProgress(agent.ID)
+		}
+		
 		agentStatuses[i] = AgentStatus{
 			ID:           agent.ID,
 			Task:         agent.Task,
@@ -71,14 +77,20 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 			MessagesSent: agent.MessagesSent,
 			QueueStatus:  agent.QueueStatus,
 			IsStale:      agent.IsStale,
+			Progress:     progress,
+			Output:       agent.Output,
+			Duration:     agent.Duration,
 		}
 	}
 
+	// Get query parameters
+	modalParam := r.URL.Query().Get("modal")
+	
 	// Render the appropriate section based on path
 	var content g.Node
 	switch path {
 	case "/", "/agents":
-		content = AgentsSection(agentStatuses)
+		content = AgentsSection(agentStatuses, modalParam)
 	case "/files":
 		dir := r.URL.Query().Get("path")
 		if dir == "" {
@@ -101,14 +113,34 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 		}
 		content = FilesSection(dir, files)
 	case "/git":
-		content = GitSection()
+		folderPath := r.URL.Query().Get("folder")
+		if folderPath == "" {
+			folderPath = "."
+		}
+		// Get git diff if folder is specified
+		diff := ""
+		showDiff := false
+		if folderPath != "" {
+			diffData, err := getGitDiff(folderPath)
+			if err == nil {
+				diff = diffData
+				showDiff = true
+			}
+		}
+		content = GitSection(folderPath, diff, showDiff)
 	case "/system":
 		content = SystemSection()
 	default:
-		content = AgentsSection(agentStatuses)
+		content = AgentsSection(agentStatuses, modalParam)
 	}
 
-	_ = DashboardLayout(content).Render(w)
+	// Disable auto-refresh when modal is open or on certain pages
+	shouldAutoRefresh := modalParam != "create" && path != "/system"
+	if shouldAutoRefresh {
+		_ = DashboardLayout(content).Render(w)
+	} else {
+		_ = DashboardLayoutNoRefresh(content).Render(w)
+	}
 }
 
 func handleAgentStatus(w http.ResponseWriter, r *http.Request) {
@@ -161,18 +193,30 @@ func handleStopAgent(w http.ResponseWriter, r *http.Request) {
 	err := stopAgent(agentID)
 
 	if err != nil {
+		// Check if this is a form submission
+		if r.Header.Get("Content-Type") != "application/json" && !strings.Contains(r.Header.Get("Accept"), "application/json") {
+			http.Redirect(w, r, "/agents?error=failed_to_stop", http.StatusSeeOther)
+			return
+		}
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
 
-	// Return success
+	// Check if this is a form submission (redirect) or API call (JSON)
+	if r.Header.Get("Content-Type") != "application/json" && !strings.Contains(r.Header.Get("Accept"), "application/json") {
+		http.Redirect(w, r, "/agents", http.StatusSeeOther)
+		return
+	}
+	
+	// Return success JSON
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "stopped", "id": agentID})
 }
 
 func handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "DELETE" {
+	// Accept both DELETE and POST for form compatibility
+	if r.Method != "DELETE" && r.Method != "POST" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -188,12 +232,23 @@ func handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 	// Remove the agent from the manager
 	err := agentManager.RemoveAgent(agentID)
 	if err != nil {
+		// Check if this is a form submission
+		if r.Method == "POST" {
+			http.Redirect(w, r, "/agents?error=failed_to_delete", http.StatusSeeOther)
+			return
+		}
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
 
-	// Return success
+	// Check if this is a form submission (redirect) or API call (JSON)
+	if r.Method == "POST" {
+		http.Redirect(w, r, "/agents", http.StatusSeeOther)
+		return
+	}
+	
+	// Return success JSON
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "id": agentID})
 }
@@ -223,11 +278,24 @@ func handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 
 	agentID, err := createCodeAgent(req.Task, req.WorkDir)
 	if err != nil {
+		// Check if this is a form submission
+		if r.Header.Get("Content-Type") != "application/json" {
+			http.Redirect(w, r, "/agents?error=failed_to_create", http.StatusSeeOther)
+			return
+		}
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
 
+	// Check if this is a form submission (redirect) or API call (JSON)
+	if r.Header.Get("Content-Type") != "application/json" {
+		// Form submission - redirect to agents page
+		http.Redirect(w, r, "/agents", http.StatusSeeOther)
+		return
+	}
+	
+	// API call - return JSON response
 	// Check if agent was queued
 	if strings.HasPrefix(agentID, "queued-") {
 		// Parse queue information
@@ -342,6 +410,14 @@ func handleGitCommit(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
 	launchCommitAgent(ctx, req.Folder)
 
+	// Check if this is a form submission (redirect) or API call (JSON)
+	if r.Header.Get("Content-Type") != "application/json" {
+		// Form submission - redirect back to git page
+		http.Redirect(w, r, fmt.Sprintf("/git?folder=%s&success=commit_launched", req.Folder), http.StatusSeeOther)
+		return
+	}
+	
+	// API call - return JSON
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
@@ -479,4 +555,126 @@ func handleWebRestart(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(1 * time.Second)
 		os.Exit(0)
 	}()
+}
+
+func handlePRCreate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Folder string `json:"folder"`
+		Branch string `json:"branch"`
+		Title  string `json:"title"`
+		Body   string `json:"body"`
+		Base   string `json:"base"`
+	}
+
+	if r.Header.Get("Content-Type") == "application/json" {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	} else {
+		req.Folder = r.FormValue("folder")
+		req.Branch = r.FormValue("branch")
+		req.Title = r.FormValue("title")
+		req.Body = r.FormValue("body")
+		req.Base = r.FormValue("base")
+	}
+
+	if req.Folder == "" {
+		req.Folder = "."
+	}
+	if req.Base == "" {
+		req.Base = "main"
+	}
+
+	// Resolve the directory path
+	absDir, err := ResolvePath(req.Folder)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Error resolving directory path: %v", err)})
+		return
+	}
+
+	// Launch PR creation agent
+	ctx := context.Background()
+	launchPRCreateAgent(ctx, absDir, req.Branch, req.Title, req.Body, req.Base)
+
+	// Check if this is a form submission (redirect) or API call (JSON)
+	if r.Header.Get("Content-Type") != "application/json" {
+		// Form submission - redirect back to git page
+		http.Redirect(w, r, fmt.Sprintf("/git?folder=%s&success=pr_create_launched", req.Folder), http.StatusSeeOther)
+		return
+	}
+	
+	// API call - return JSON
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("PR creation agent launched. The AI will create a pull request from branch '%s' to '%s'.", req.Branch, req.Base),
+	})
+}
+
+func handlePRReview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Folder string `json:"folder"`
+		PRURL  string `json:"pr_url"`
+		Action string `json:"action"`
+	}
+
+	if r.Header.Get("Content-Type") == "application/json" {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	} else {
+		req.Folder = r.FormValue("folder")
+		req.PRURL = r.FormValue("pr_url")
+		req.Action = r.FormValue("action")
+	}
+
+	if req.Folder == "" {
+		req.Folder = "."
+	}
+
+	// Resolve the directory path
+	absDir, err := ResolvePath(req.Folder)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("Error resolving directory path: %v", err)})
+		return
+	}
+
+	// Launch PR review agent
+	ctx := context.Background()
+	launchPRReviewAgent(ctx, absDir, req.PRURL, req.Action)
+
+	// Check if this is a form submission (redirect) or API call (JSON)
+	if r.Header.Get("Content-Type") != "application/json" {
+		// Form submission - redirect back to git page
+		http.Redirect(w, r, fmt.Sprintf("/git?folder=%s&success=pr_review_launched", req.Folder), http.StatusSeeOther)
+		return
+	}
+	
+	// API call - return JSON
+	actionText := "review"
+	if req.Action == "approve" {
+		actionText = "review and approve"
+	} else if req.Action == "request-changes" {
+		actionText = "review and request changes on"
+	}
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("PR review agent launched. The AI will %s the pull request.", actionText),
+	})
 }

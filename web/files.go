@@ -32,9 +32,7 @@ func FilesSection(currentPath string, files []FileInfo) g.Node {
 					}
 					return g.Group([]g.Node{
 						h.A(
-							h.Href("#"),
-							g.Attr("data-path", crumb.Path),
-							g.Attr("onclick", "navigateToPath(this.getAttribute('data-path')); return false;"),
+							h.Href("/files?path="+crumb.Path),
 							g.Text(crumb.Name),
 						),
 						h.Span(g.Text(" / ")),
@@ -56,9 +54,7 @@ func FilesSection(currentPath string, files []FileInfo) g.Node {
 						h.Tr(
 							h.Td(
 								h.A(
-									h.Href("#"),
-									g.Attr("data-path", filepath.Dir(currentPath)),
-									g.Attr("onclick", "navigateToPath(this.getAttribute('data-path')); return false;"),
+									h.Href("/files?path="+filepath.Dir(currentPath)),
 									g.Text(".."),
 								),
 							),
@@ -84,9 +80,7 @@ func FileRow(currentPath string, file FileInfo) g.Node {
 			g.If(file.IsDir,
 				h.A(
 					h.Class("file-dir"),
-					h.Href("#"),
-					g.Attr("data-path", fullPath),
-					g.Attr("onclick", "navigateToPath(this.getAttribute('data-path')); return false;"),
+					h.Href(fmt.Sprintf("/files?path=%s", fullPath)),
 					g.Text(file.Name+"/"),
 				),
 			),

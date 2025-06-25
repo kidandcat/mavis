@@ -6,11 +6,12 @@ import (
 )
 
 func SystemControlsForm() g.Node {
-	return h.Div(
+	return h.Form(
+		h.Method("post"),
+		h.Action("/api/system/restart"),
 		h.Button(
-			h.Type("button"),
+			h.Type("submit"),
 			h.Class("btn btn-danger"),
-			g.Attr("onclick", "restartMavis()"),
 			g.Text("Restart Mavis"),
 		),
 		h.Div(h.ID("restart-message"), h.Class("message")),
@@ -43,7 +44,8 @@ func SystemSection() g.Node {
 func CommandForm() g.Node {
 	return h.Form(
 		h.ID("command-form"),
-		g.Attr("onsubmit", "runCommand(event); return false;"),
+		h.Method("post"),
+		h.Action("/api/command/run"),
 
 		h.Div(h.Class("form-group"),
 			h.Input(
@@ -77,9 +79,10 @@ func CommandOutput(output string, success bool) g.Node {
 
 func ImageUploadForm() g.Node {
 	return h.Form(
-		h.EncType("multipart/form-data"),
+		g.Attr("enctype", "multipart/form-data"),
 		h.ID("image-upload-form"),
-		g.Attr("onsubmit", "uploadImage(event); return false;"),
+		h.Method("post"),
+		h.Action("/api/images"),
 
 		h.Div(h.Class("form-group"),
 			h.Input(

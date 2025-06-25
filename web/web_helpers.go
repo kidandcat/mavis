@@ -151,7 +151,7 @@ func getAgentProgress(agentID string) string {
 			lines := strings.Split(string(content), "\n")
 			inProgress := false
 			var progressLines []string
-			
+
 			for _, line := range lines {
 				if strings.HasPrefix(line, "## Progress") {
 					inProgress = true
@@ -160,12 +160,12 @@ func getAgentProgress(agentID string) string {
 					// End of progress section
 					break
 				}
-				
+
 				if inProgress && strings.TrimSpace(line) != "" {
 					progressLines = append(progressLines, line)
 				}
 			}
-			
+
 			if len(progressLines) > 0 {
 				return strings.Join(progressLines, "\n")
 			}
@@ -484,11 +484,9 @@ func CreateCodeAgent(ctx context.Context, workDir, task string, images []string)
 	if strings.HasPrefix(agentID, "queued-") {
 		// Parse queue information from the response
 		parts := strings.Split(agentID, "-")
-		var queuePos, queueID string
+		var queueID string
 		for i := 0; i < len(parts); i++ {
-			if parts[i] == "pos" && i+1 < len(parts) {
-				queuePos = parts[i+1]
-			} else if parts[i] == "qid" && i+1 < len(parts) {
+			if parts[i] == "qid" && i+1 < len(parts) {
 				// The queue ID includes everything after "qid-"
 				queueIDParts := []string{}
 				for j := i + 1; j < len(parts); j++ {
@@ -504,14 +502,12 @@ func CreateCodeAgent(ctx context.Context, workDir, task string, images []string)
 			queueTracker.RegisterQueuedAgent(queueID, AdminUserID, workDir, task)
 		}
 
-		queuedTasks := agentManager.GetQueuedTasksForFolder(workDir)
-
-		// Broadcast SSE event for queue update
-		BroadcastSSEEvent("queue_update", map[string]interface{}{
-			"directory":      workDir,
-			"queue_position": queuePos,
-			"total_queued":   queuedTasks,
-		})
+		// SSE removed - using meta refresh instead
+		// BroadcastSSEEvent("queue_update", map[string]interface{}{
+		// 	"directory":      workDir,
+		// 	"queue_position": queuePos,
+		// 	"total_queued":   queuedTasks,
+		// })
 
 		return agentID, nil
 	}
@@ -519,12 +515,12 @@ func CreateCodeAgent(ctx context.Context, workDir, task string, images []string)
 	// Register the agent for user (only for non-queued agents)
 	RegisterAgentForUser(agentID, AdminUserID)
 
-	// Broadcast SSE event
-	BroadcastSSEEvent("agent_started", map[string]interface{}{
-		"agent_id":  agentID,
-		"directory": workDir,
-		"task":      task,
-	})
+	// SSE removed - using meta refresh instead
+	// BroadcastSSEEvent("agent_started", map[string]interface{}{
+	// 	"agent_id":  agentID,
+	// 	"directory": workDir,
+	// 	"task":      task,
+	// })
 
 	// Send Telegram notification about the agent launch
 	if b != nil && AdminUserID != 0 {
@@ -747,7 +743,7 @@ func ResolvePath(path string) (string, error) {
 func launchCommitAgent(ctx context.Context, folder string) {
 	// Create the task for the commit agent
 	task := "Please analyze the git diff and create an appropriate commit with a descriptive message. Use 'git add' to stage any unstaged changes, then create the commit."
-	
+
 	// Launch the agent using the agent manager
 	agentID, err := agentManager.LaunchAgent(ctx, folder, task)
 	if err != nil {
@@ -755,8 +751,54 @@ func launchCommitAgent(ctx context.Context, folder string) {
 		fmt.Printf("Error launching commit agent: %v\n", err)
 		return
 	}
-	
+
 	fmt.Printf("Launched commit agent with ID: %s for folder: %s\n", agentID, folder)
+}
+
+func launchPRCreateAgent(ctx context.Context, folder, branch, title, body, base string) {
+	// Create the task for the PR creation agent
+	task := fmt.Sprintf(`Please create a pull request with the following details:
+- Branch: %s
+- Base Branch: %s
+- Title: %s
+- Description: %s
+
+First, ensure you're on the correct branch and push it to the remote if needed. Then use 'gh pr create' to create the pull request.`, branch, base, title, body)
+
+	// Launch the agent using the agent manager
+	agentID, err := agentManager.LaunchAgent(ctx, folder, task)
+	if err != nil {
+		// Log the error but don't block the response
+		fmt.Printf("Error launching PR create agent: %v\n", err)
+		return
+	}
+
+	fmt.Printf("Launched PR create agent with ID: %s for folder: %s\n", agentID, folder)
+}
+
+func launchPRReviewAgent(ctx context.Context, folder, prURL, action string) {
+	// Create the task for the PR review agent based on action
+	var task string
+	switch action {
+	case "review":
+		task = fmt.Sprintf("Please review the pull request at %s and provide a detailed analysis. Use 'gh pr view' and 'gh pr diff' to examine the changes, then provide your feedback without posting to GitHub.", prURL)
+	case "approve":
+		task = fmt.Sprintf("Please review and approve the pull request at %s. Use 'gh pr view' and 'gh pr diff' to examine the changes, then use 'gh pr review --approve' to approve it with your feedback.", prURL)
+	case "request-changes":
+		task = fmt.Sprintf("Please review the pull request at %s and request changes. Use 'gh pr view' and 'gh pr diff' to examine the changes, then use 'gh pr review --request-changes' to request changes with specific feedback.", prURL)
+	default:
+		task = fmt.Sprintf("Please review the pull request at %s and provide feedback.", prURL)
+	}
+
+	// Launch the agent using the agent manager
+	agentID, err := agentManager.LaunchAgent(ctx, folder, task)
+	if err != nil {
+		// Log the error but don't block the response
+		fmt.Printf("Error launching PR review agent: %v\n", err)
+		return
+	}
+
+	fmt.Printf("Launched PR review agent with ID: %s for folder: %s\n", agentID, folder)
 }
 
 // RegisterAgentForUser registers an agent for a user (no-op in single-user mode)
