@@ -98,7 +98,3 @@ func (u *upnpManagerStub) UnmapPort(port int) {
 
 var upnpManager = &upnpManagerStub{}
 
-// StartFileServer starts a simple HTTP file server - TODO: Move to proper package
-func StartFileServer(dir, port string) (*http.Server, error) {
-	return nil, fmt.Errorf("file server not implemented")
-}

@@ -5,7 +5,7 @@ window.addEventListener('beforeunload', function() {
     localStorage.setItem('mavis-scroll-position', window.scrollY);
 });
 
-// Handle restart button - redirect to root before restarting
+// Handle restart button - submit restart request then redirect
 document.addEventListener('DOMContentLoaded', function() {
     // Find the restart form by its action attribute
     const restartForm = document.querySelector('form[action="/api/system/restart"]');
@@ -14,18 +14,19 @@ document.addEventListener('DOMContentLoaded', function() {
         restartForm.addEventListener('submit', function(e) {
             e.preventDefault();
             
-            // Redirect to root path
-            window.location.href = '/';
-            
-            // Wait 1 second then submit the restart request
-            setTimeout(function() {
-                fetch('/api/system/restart', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                    }
-                });
-            }, 1000);
+            // Submit the restart request first
+            fetch('/api/system/restart', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                }
+            }).then(() => {
+                // After request is sent, redirect to root
+                window.location.href = '/';
+            }).catch(() => {
+                // Even on error, redirect to root
+                window.location.href = '/';
+            });
         });
     }
 });

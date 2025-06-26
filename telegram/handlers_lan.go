@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"mavis/core"
+	"mavis/web"
 
 	"github.com/go-telegram/bot/models"
 )
@@ -325,7 +326,7 @@ func handleServeCommand(ctx context.Context, message *models.Message) {
 	core.SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("🚀 Starting LAN file server...\n📁 Directory: %s\n🔌 Port: %s\n🛠️ Server: Go HTTP Server", absWorkdir, port))
 
 	// Start the Go file server
-	_, err = StartFileServer(absWorkdir, port)
+	_, err = web.StartFileServer(absWorkdir, port)
 	if err != nil {
 		core.SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("❌ Failed to start LAN file server: %v", err))
 		return

@@ -20,6 +20,7 @@ import (
 type CreateAgentRequest struct {
 	Task    string `json:"task"`
 	WorkDir string `json:"work_dir"`
+	Branch  string `json:"branch"`
 }
 
 // Login handler removed - authentication disabled for local network use
@@ -64,8 +65,10 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 	for i, agent := range agents {
 		// Get progress for running agents
 		progress := ""
+		plan := ""
 		if agent.Status == "running" || agent.Status == "active" {
 			progress = getAgentProgress(agent.ID)
+			plan = getAgentPlan(agent.ID)
 		}
 		
 		agentStatuses[i] = AgentStatus{
@@ -78,6 +81,7 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 			QueueStatus:  agent.QueueStatus,
 			IsStale:      agent.IsStale,
 			Progress:     progress,
+			Plan:         plan,
 			Output:       agent.Output,
 			Duration:     agent.Duration,
 		}
@@ -134,8 +138,8 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 		content = AgentsSection(agentStatuses, modalParam)
 	}
 
-	// Disable auto-refresh when modal is open or on certain pages
-	shouldAutoRefresh := modalParam != "create" && path != "/system"
+	// Only enable auto-refresh on agents page when no modal is open
+	shouldAutoRefresh := modalParam != "create" && (path == "/" || path == "/agents")
 	if shouldAutoRefresh {
 		_ = DashboardLayout(content).Render(w)
 	} else {
@@ -269,6 +273,7 @@ func handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 		// Handle form data
 		req.Task = r.FormValue("task")
 		req.WorkDir = r.FormValue("work_dir")
+		req.Branch = r.FormValue("branch")
 	}
 
 	if req.Task == "" {
@@ -276,7 +281,7 @@ func handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	agentID, err := createCodeAgent(req.Task, req.WorkDir)
+	agentID, err := createAgentWithBranch(req.Task, req.WorkDir, req.Branch)
 	if err != nil {
 		// Check if this is a form submission
 		if r.Header.Get("Content-Type") != "application/json" {

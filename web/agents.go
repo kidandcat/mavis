@@ -2,6 +2,7 @@ package web
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -19,6 +20,7 @@ type AgentStatus struct {
 	QueueStatus  string
 	IsStale      bool
 	Progress     string
+	Plan         string
 	Output       string
 	Duration     time.Duration
 }
@@ -47,7 +49,7 @@ func getStatusClass(agent AgentStatus) string {
 	return "running"
 }
 
-// categorizeAgents sorts agents into their respective columns
+// categorizeAgents sorts agents into their respective columns and sorts each column by ID
 func categorizeAgents(agents []AgentStatus) (planning, queued, running, finished []AgentStatus) {
 	for _, agent := range agents {
 		switch agent.Status {
@@ -67,6 +69,21 @@ func categorizeAgents(agents []AgentStatus) (planning, queued, running, finished
 			running = append(running, agent)
 		}
 	}
+	
+	// Sort each column by ID
+	sort.Slice(planning, func(i, j int) bool {
+		return planning[i].ID < planning[j].ID
+	})
+	sort.Slice(queued, func(i, j int) bool {
+		return queued[i].ID < queued[j].ID
+	})
+	sort.Slice(running, func(i, j int) bool {
+		return running[i].ID < running[j].ID
+	})
+	sort.Slice(finished, func(i, j int) bool {
+		return finished[i].ID < finished[j].ID
+	})
+	
 	return
 }
 
@@ -217,22 +234,38 @@ func AgentCard(agent AgentStatus) g.Node {
 		),
 		h.Div(h.Class("agent-stats")),
 
-		// Show progress if available
-		g.If(agent.Progress != "" && (agent.Status == "running" || agent.Status == "active"),
-			h.Div(h.Class("agent-progress"),
-				h.Div(h.Class("progress-header"), g.Text("Progress:")),
-				h.Div(h.Class("progress-content"),
-					h.Pre(g.Text(agent.Progress)),
+		// Show plan or progress based on whether agent is in planning state
+		g.If(agent.Status == "running" || agent.Status == "active",
+			g.Group([]g.Node{
+				// Show plan if agent is in planning state (no progress or default progress text)
+				g.If(agent.Progress == "" || strings.Contains(agent.Progress, "(The AI will update progress here as it works)"),
+					g.Group([]g.Node{
+						g.If(agent.Plan != "",
+							h.Div(h.Class("agent-planning"),
+								h.Div(h.Class("planning-header"), g.Text("Plan:")),
+								h.Div(h.Class("planning-content"),
+									h.Pre(g.Text(agent.Plan)),
+								),
+							),
+						),
+						g.If(agent.Plan == "",
+							h.Div(h.Class("agent-planning"),
+								h.Div(h.Class("planning-header"), g.Text("Planning:")),
+								h.Div(h.Class("planning-content"), g.Text("Agent is analyzing the task and creating a plan...")),
+							),
+						),
+					}),
 				),
-			),
-		),
-
-		// Show planning indicator for agents without progress
-		g.If(agent.Progress == "" && (agent.Status == "running" || agent.Status == "active"),
-			h.Div(h.Class("agent-planning"),
-				h.Div(h.Class("planning-header"), g.Text("Planning:")),
-				h.Div(h.Class("planning-content"), g.Text("Agent is analyzing the task and creating a plan...")),
-			),
+				// Show progress if agent is actively working (has real progress)
+				g.If(agent.Progress != "" && !strings.Contains(agent.Progress, "(The AI will update progress here as it works)"),
+					h.Div(h.Class("agent-progress"),
+						h.Div(h.Class("progress-header"), g.Text("Progress:")),
+						h.Div(h.Class("progress-content"),
+							h.Pre(g.Text(agent.Progress)),
+						),
+					),
+				),
+			}),
 		),
 
 		h.Div(h.Class("agent-actions"),
@@ -271,6 +304,17 @@ func CreateAgentModal() g.Node {
 						h.Placeholder("Leave empty for current dir or use . or /absolute/path"),
 						h.AutoFocus(),
 					),
+				),
+
+				h.Div(h.Class("form-group"),
+					h.Label(h.For("branch"), g.Text("Branch Name (optional)")),
+					h.Input(
+						h.Type("text"),
+						h.ID("branch"),
+						h.Name("branch"),
+						h.Placeholder("Leave empty for default behavior, or specify branch name"),
+					),
+					h.Small(h.Class("text-muted"), g.Text("If specified: uses existing branch or creates new feature branch")),
 				),
 
 				h.Div(h.Class("form-group"),

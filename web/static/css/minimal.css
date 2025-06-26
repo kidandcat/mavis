@@ -145,8 +145,9 @@ a:hover {
 }
 
 .section {
-    max-width: 1400px;
+    width: 100%;
     margin: 0 auto;
+    padding: 0 var(--space-sm);
 }
 
 .section-header {
@@ -244,6 +245,7 @@ input[type="text"],
 input[type="email"],
 input[type="password"],
 input[type="file"],
+input[type="url"],
 textarea,
 select {
     width: 100%;
@@ -260,6 +262,7 @@ select {
 input[type="text"]:focus,
 input[type="email"]:focus,
 input[type="password"]:focus,
+input[type="url"]:focus,
 textarea:focus,
 select:focus {
     outline: none;
@@ -272,12 +275,22 @@ textarea {
     min-height: 100px;
 }
 
+/* Small text helper */
+small, .text-muted {
+    font-size: 0.85em;
+    color: var(--text-secondary);
+    display: block;
+    margin-top: 4px;
+}
+
 /* Kanban Board */
 .kanban-container {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: var(--space-md);
     margin-top: var(--space-lg);
+    width: 100%;
+    overflow-x: auto;
 }
 
 .kanban-column {
@@ -286,6 +299,8 @@ textarea {
     border-radius: 8px;
     padding: var(--space-sm);
     min-height: 400px;
+    min-width: 0;
+    overflow: hidden;
 }
 
 .kanban-header {
@@ -321,6 +336,8 @@ textarea {
     padding: var(--space-sm);
     cursor: pointer;
     transition: all var(--transition-speed);
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
 
 .agent-card:hover {
@@ -415,14 +432,16 @@ textarea {
     font-weight: bold;
 }
 
-.progress-content pre {
+.progress-content pre,
+.planning-content pre {
     margin: 0;
     white-space: pre-wrap;
     word-wrap: break-word;
     font-size: 0.8rem;
     color: var(--text-secondary);
-    max-height: 150px;
+    max-height: 200px;
     overflow-y: auto;
+    overflow-x: hidden;
 }
 
 .agent-output {
@@ -440,6 +459,7 @@ textarea {
     color: var(--text-secondary);
     max-height: 200px;
     overflow-y: auto;
+    overflow-x: hidden;
 }
 
 .agent-time {
@@ -655,6 +675,18 @@ code {
 }
 
 /* Responsive */
+@media (min-width: 1600px) {
+    .section {
+        padding: 0 var(--space-lg);
+    }
+}
+
+@media (min-width: 2000px) {
+    .section {
+        padding: 0 var(--space-xl);
+    }
+}
+
 @media (max-width: 1200px) {
     .kanban-container {
         grid-template-columns: repeat(2, 1fr);

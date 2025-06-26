@@ -175,6 +175,50 @@ func getAgentProgress(agentID string) string {
 	return ""
 }
 
+func getAgentPlan(agentID string) string {
+	agent := getAgentByID(agentID)
+	if agent == nil {
+		return ""
+	}
+
+	// Get agent details from agent manager
+	agentDetails, err := agentManager.GetAgent(agentID)
+	if err != nil || agentDetails == nil {
+		return ""
+	}
+
+	// Only look for plan in CURRENT_PLAN.md for running agents
+	if agentDetails.Status == "running" {
+		planPath := filepath.Join(agentDetails.Folder, "CURRENT_PLAN.md")
+		if content, err := os.ReadFile(planPath); err == nil {
+			// Extract only the plan section
+			lines := strings.Split(string(content), "\n")
+			inPlan := false
+			var planLines []string
+
+			for _, line := range lines {
+				if strings.HasPrefix(line, "## Plan") {
+					inPlan = true
+					continue
+				} else if inPlan && strings.HasPrefix(line, "##") {
+					// End of plan section
+					break
+				}
+
+				if inPlan && strings.TrimSpace(line) != "" {
+					planLines = append(planLines, line)
+				}
+			}
+
+			if len(planLines) > 0 {
+				return strings.Join(planLines, "\n")
+			}
+		}
+	}
+
+	return ""
+}
+
 func getAgentStatus(agentID string) string {
 	agent := getAgentByID(agentID)
 	if agent == nil {
@@ -781,11 +825,113 @@ func launchPRReviewAgent(ctx context.Context, folder, prURL, action string) {
 	var task string
 	switch action {
 	case "review":
-		task = fmt.Sprintf("Please review the pull request at %s and provide a detailed analysis. Use 'gh pr view' and 'gh pr diff' to examine the changes, then provide your feedback without posting to GitHub.", prURL)
+		task = fmt.Sprintf(`IMPORTANT PR REVIEW INSTRUCTIONS:
+You are tasked with reviewing a pull request. Follow these steps carefully:
+
+1. First, use the gh CLI to get information about the PR: %s
+   - Get PR details: gh pr view %s
+   - Get PR diff: gh pr diff %s
+   - Get PR checks status: gh pr checks %s
+
+2. Analyze the code changes:
+   - Look for potential bugs, security issues, or performance problems
+   - Check if the implementation aligns with the requirements
+   - Verify that the code follows project conventions and best practices
+   - Check for missing tests or documentation
+
+4. Write a concise PR review:
+   - DO NOT use gh pr comment or post anything to the PR
+   - Structure your review as follows:
+     * List any bugs or issues found (if any)
+     * Code improvement suggestions (following the project conventions and best practices) (if any)
+     * Final verdict: Approve, Request Changes, or Needs Discussion
+
+Remember:
+- Be concise
+- Point out specific line numbers or files when mentioning issues
+- If everything looks good, don't say anything
+- Send your review message directly to the output
+
+PR URL: %s`, prURL, prURL, prURL, prURL, prURL)
 	case "approve":
-		task = fmt.Sprintf("Please review and approve the pull request at %s. Use 'gh pr view' and 'gh pr diff' to examine the changes, then use 'gh pr review --approve' to approve it with your feedback.", prURL)
+		task = fmt.Sprintf(`IMPORTANT PR REVIEW AND APPROVAL INSTRUCTIONS:
+You must review this pull request and then approve it using the gh CLI.
+
+1. Get PR information:
+   - gh pr view %s
+   - gh pr diff %s
+   - gh pr checks %s
+
+2. Analyze the code for issues:
+   - Bugs, security vulnerabilities, logic errors
+   - Breaking changes or regressions
+   - Missing critical tests for new functionality
+   - Verify that the code follows project conventions and best practices
+   - Check for missing tests
+   
+   DO NOT comment on:
+   - Code style preferences
+   - Minor improvements that work correctly
+   - Things that are already good
+
+3. Post your review using EXACTLY ONE command:
+   
+   If NO ISSUES found:
+   gh pr review %s --approve --body "LGTM ✅"
+   
+   If ISSUES found (but still approve):
+   gh pr review %s --approve --body "LGTM ✅
+
+However, I found the following issues that should be addressed in a follow-up:
+- Issue 1: [specific problem at file:line]
+- Issue 2: [specific problem at file:line]"
+
+CRITICAL RULES:
+- You MUST always use the --approve flag regardless of issues found
+- ONLY list actual problems that need fixing
+- Execute ONLY ONE gh pr review command
+- DO NOT run the command twice
+- Always approve even if there are issues
+
+PR URL: %s`, prURL, prURL, prURL, prURL, prURL, prURL)
 	case "request-changes":
-		task = fmt.Sprintf("Please review the pull request at %s and request changes. Use 'gh pr view' and 'gh pr diff' to examine the changes, then use 'gh pr review --request-changes' to request changes with specific feedback.", prURL)
+		task = fmt.Sprintf(`IMPORTANT PR REVIEW AND COMMENT INSTRUCTIONS:
+You must review this pull request and post your review using the gh CLI.
+
+1. Get PR information:
+   - gh pr view %s
+   - gh pr diff %s
+   - gh pr checks %s
+
+2. Analyze the code for issues ONLY:
+   - Bugs, security vulnerabilities, logic errors
+   - Breaking changes or regressions
+   - Missing critical tests for new functionality
+   - Verify that the code follows project conventions and best practices
+   - Check for missing tests
+   
+   DO NOT comment on:
+   - Code style preferences
+   - Minor improvements that work correctly
+   - Things that are already good
+
+3. Post your review using EXACTLY ONE command:
+   
+   If NO ISSUES found:
+   gh pr review %s --approve --body "LGTM"
+   
+   If ISSUES found:
+   gh pr review %s --request-changes --body "- Issue 1: [specific problem at file:line]
+- Issue 2: [specific problem at file:line]"
+
+CRITICAL RULES:
+- ONLY list actual problems that need fixing
+- NO summaries, NO strengths, NO general observations
+- If code works correctly, just approve with "LGTM"
+- Execute ONLY ONE gh pr review command
+- DO NOT run the command twice
+
+PR URL: %s`, prURL, prURL, prURL, prURL, prURL, prURL)
 	default:
 		task = fmt.Sprintf("Please review the pull request at %s and provide feedback.", prURL)
 	}
@@ -805,4 +951,150 @@ func launchPRReviewAgent(ctx context.Context, folder, prURL, action string) {
 func RegisterAgentForUser(agentID string, userID int64) {
 	// No-op in single-user mode - just log for debugging
 	fmt.Printf("Agent %s started (single-user mode)\n", agentID)
+}
+
+// checkBranchExists checks if a branch exists locally or remotely
+func checkBranchExists(workDir, branch string) (bool, error) {
+	// Check if the branch exists locally
+	cmd := exec.Command("git", "branch", "--list", branch)
+	cmd.Dir = workDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return false, fmt.Errorf("failed to check local branches: %v", err)
+	}
+	
+	// Check if branch exists locally
+	if len(strings.TrimSpace(string(output))) > 0 {
+		return true, nil
+	}
+	
+	// Check remote branches
+	cmd = exec.Command("git", "branch", "-r", "--list", fmt.Sprintf("origin/%s", branch))
+	cmd.Dir = workDir
+	output, err = cmd.CombinedOutput()
+	if err != nil {
+		return false, fmt.Errorf("failed to check remote branches: %v", err)
+	}
+	
+	// Return true if branch exists remotely
+	return len(strings.TrimSpace(string(output))) > 0, nil
+}
+
+// createAgentWithBranch creates an agent with appropriate git behavior based on branch parameter
+func createAgentWithBranch(task, workDir, branch string) (string, error) {
+	if workDir == "" {
+		workDir = "."
+	}
+
+	// Use ResolvePath to ensure paths are resolved from home directory
+	absPath, err := ResolvePath(workDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve path: %w", err)
+	}
+	workDir = absPath
+
+	// If no branch specified, use default code behavior
+	if branch == "" {
+		return createCodeAgent(task, workDir)
+	}
+
+	// Check if it's a git repository
+	if !isGitRepo(workDir) {
+		return "", fmt.Errorf("branch specified but directory is not a git repository: %s", workDir)
+	}
+
+	// Create a temp directory for git operations
+	tempDir, err := os.MkdirTemp("", "git-agent-*")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp directory: %v", err)
+	}
+
+	// Copy the repository to temp directory
+	cmd := exec.Command("rsync", "-av", "--exclude=node_modules", "--exclude=.DS_Store", workDir+"/", tempDir+"/")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		os.RemoveAll(tempDir)
+		return "", fmt.Errorf("failed to copy repository: %v\nOutput: %s", err, string(output))
+	}
+
+	// Check if branch exists
+	branchExists, err := checkBranchExists(tempDir, branch)
+	if err != nil {
+		os.RemoveAll(tempDir)
+		return "", fmt.Errorf("failed to check branch: %v", err)
+	}
+
+	var gitPrompt string
+	if branchExists {
+		// Use edit_branch behavior
+		gitPrompt = fmt.Sprintf(`IMPORTANT GIT WORKFLOW INSTRUCTIONS:
+You are working on a git repository with an existing branch. You MUST follow these steps:
+
+1. First, fetch the latest changes: git fetch origin
+2. Checkout the existing branch '%s' using: git checkout %s
+3. If the branch exists only on remote, use: git checkout -b %s origin/%s
+4. Pull the latest changes from the remote branch: git pull origin %s
+5. Make all the necessary changes to complete the task: %s
+6. Stage and commit your changes with a descriptive commit message
+   IMPORTANT: When staging files, NEVER include *_PLAN_*.md files. Use commands like:
+   - git add . && git reset *_PLAN_*.md  (to add all except plan files)
+   - Or stage files individually, explicitly excluding *_PLAN_*.md files
+7. Try to push the changes to the remote repository using: git push origin %s
+8. If the push fails due to authentication or permissions, that's okay - just report the status
+
+Remember:
+- You are working on the existing branch '%s'
+- Make atomic, well-described commits
+- Include a clear commit message explaining what was changed and why
+- Ensure you're up to date with the remote branch before making changes
+- NEVER commit *_PLAN_*.md files - they're for your planning only
+
+Task: %s`, branch, branch, branch, branch, branch, task, branch, branch, task)
+	} else {
+		// Use new_branch behavior - create feature branch
+		branchName := branch
+		if !strings.HasPrefix(branch, "feature/") {
+			branchName = fmt.Sprintf("feature/%s", branch)
+		}
+		
+		gitPrompt = fmt.Sprintf(`IMPORTANT GIT WORKFLOW INSTRUCTIONS:
+You are working on a git repository. You MUST follow these steps:
+
+1. First, create a new branch for your changes using: git checkout -b %s
+2. Make all the necessary changes to complete the task: %s
+3. Stage and commit your changes with a descriptive commit message
+   IMPORTANT: When staging files, NEVER include *_PLAN_*.md files. Use commands like:
+   - git add . && git reset *_PLAN_*.md  (to add all except plan files)
+   - Or stage files individually, explicitly excluding *_PLAN_*.md files
+4. Try to push the branch to the remote repository using: git push -u origin %s
+5. If the push fails due to authentication or permissions, that's okay - just report the status
+
+Remember:
+- Always work on the new branch '%s', never directly on main/master
+- Make atomic, well-described commits
+- Include a clear commit message explaining what was changed and why
+- NEVER commit *_PLAN_*.md files - they're for your planning only
+
+Task: %s`, branchName, task, branchName, branchName, task)
+	}
+
+	// Launch the agent with the git-specific prompt
+	agentID, err := agentManager.LaunchAgent(context.Background(), tempDir, gitPrompt)
+	if err != nil {
+		os.RemoveAll(tempDir)
+		return "", err
+	}
+
+	// Send Telegram notification about the agent launch
+	if b != nil && AdminUserID != 0 {
+		behaviorType := "edit_branch"
+		if !branchExists {
+			behaviorType = "new_branch"
+		}
+		message := fmt.Sprintf("🌐 Git-aware code agent launched from Web UI!\n🆔 ID: `%s`\n📝 Task: %s\n🌿 Branch: %s (%s)\n📁 Original: %s\n📁 Workspace: %s\n\nUse `/status %s` to check status.",
+			agentID, task, branch, behaviorType, workDir, tempDir, agentID)
+		core.SendMessage(context.Background(), b, AdminUserID, message)
+	}
+
+	return agentID, nil
 }
