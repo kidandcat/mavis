@@ -2,6 +2,9 @@
 
 Mavis is a powerful bot that brings Claude AI directly to your development workflow. Access it through Telegram commands or a modern web interface. Launch autonomous AI agents to write code, manage git operations, review pull requests, and serve local projects on your LAN network.
 
+<img width="1918" alt="Screenshot 2025-06-26 at 21 21 17" src="https://github.com/user-attachments/assets/9b932b75-3e3b-4a12-ada6-c381b767a0c3" />
+
+
 ## 🚀 Features
 
 ### 🤖 Autonomous Code Agents
