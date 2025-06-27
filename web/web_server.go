@@ -45,6 +45,7 @@ func StartWebServer(port string) error {
 	mux.HandleFunc("/api/git/commit", handleGitCommit)
 	mux.HandleFunc("/api/git/pr/create", handlePRCreate)
 	mux.HandleFunc("/api/git/pr/review", handlePRReview)
+	mux.HandleFunc("/api/git/check-directory", handleCheckDirectory)
 	mux.HandleFunc("/api/files/download", handleWebDownload)
 	mux.HandleFunc("/api/command/run", handleWebRunCommand)
 	mux.HandleFunc("/api/images", handleImageUpload)

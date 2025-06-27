@@ -89,12 +89,28 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 
 	// Get query parameters
 	modalParam := r.URL.Query().Get("modal")
+	dirParam := r.URL.Query().Get("dir")
+	
+	// Check directory and get branches if modal is create and dir is provided
+	var branches []string
+	if modalParam == "create" && dirParam != "" {
+		// Resolve the directory path
+		if absDir, err := ResolvePath(dirParam); err == nil {
+			// Check if it's a git repository
+			if isGitRepo(absDir) {
+				// Get branches
+				if branchList, err := listGitBranches(absDir); err == nil {
+					branches = branchList
+				}
+			}
+		}
+	}
 	
 	// Render the appropriate section based on path
 	var content g.Node
 	switch path {
 	case "/", "/agents":
-		content = AgentsSection(agentStatuses, modalParam)
+		content = AgentsSection(agentStatuses, modalParam, dirParam, branches)
 	case "/files":
 		dir := r.URL.Query().Get("path")
 		if dir == "" {
@@ -135,15 +151,15 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 	case "/system":
 		content = SystemSection()
 	default:
-		content = AgentsSection(agentStatuses, modalParam)
+		content = AgentsSection(agentStatuses, modalParam, dirParam, branches)
 	}
 
 	// Only enable auto-refresh on agents page when no modal is open
 	shouldAutoRefresh := modalParam != "create" && (path == "/" || path == "/agents")
 	if shouldAutoRefresh {
-		_ = DashboardLayout(content).Render(w)
+		_ = DashboardLayout(w, r, content).Render(w)
 	} else {
-		_ = DashboardLayoutNoRefresh(content).Render(w)
+		_ = DashboardLayoutNoRefresh(w, r, content).Render(w)
 	}
 }
 
@@ -199,7 +215,8 @@ func handleStopAgent(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// Check if this is a form submission
 		if r.Header.Get("Content-Type") != "application/json" && !strings.Contains(r.Header.Get("Accept"), "application/json") {
-			http.Redirect(w, r, "/agents?error=failed_to_stop", http.StatusSeeOther)
+			SetErrorFlash(w, fmt.Sprintf("Failed to stop agent: %v", err))
+			http.Redirect(w, r, "/agents", http.StatusSeeOther)
 			return
 		}
 		w.WriteHeader(http.StatusInternalServerError)
@@ -209,6 +226,7 @@ func handleStopAgent(w http.ResponseWriter, r *http.Request) {
 
 	// Check if this is a form submission (redirect) or API call (JSON)
 	if r.Header.Get("Content-Type") != "application/json" && !strings.Contains(r.Header.Get("Accept"), "application/json") {
+		SetSuccessFlash(w, fmt.Sprintf("Agent %s stopped successfully", agentID))
 		http.Redirect(w, r, "/agents", http.StatusSeeOther)
 		return
 	}
@@ -238,7 +256,8 @@ func handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// Check if this is a form submission
 		if r.Method == "POST" {
-			http.Redirect(w, r, "/agents?error=failed_to_delete", http.StatusSeeOther)
+			SetErrorFlash(w, fmt.Sprintf("Failed to delete agent: %v", err))
+			http.Redirect(w, r, "/agents", http.StatusSeeOther)
 			return
 		}
 		w.WriteHeader(http.StatusInternalServerError)
@@ -248,6 +267,7 @@ func handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 
 	// Check if this is a form submission (redirect) or API call (JSON)
 	if r.Method == "POST" {
+		SetSuccessFlash(w, fmt.Sprintf("Agent %s deleted successfully", agentID))
 		http.Redirect(w, r, "/agents", http.StatusSeeOther)
 		return
 	}
@@ -285,7 +305,8 @@ func handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// Check if this is a form submission
 		if r.Header.Get("Content-Type") != "application/json" {
-			http.Redirect(w, r, "/agents?error=failed_to_create", http.StatusSeeOther)
+			SetErrorFlash(w, fmt.Sprintf("Failed to create agent: %v", err))
+			http.Redirect(w, r, "/agents", http.StatusSeeOther)
 			return
 		}
 		w.WriteHeader(http.StatusInternalServerError)
@@ -296,6 +317,11 @@ func handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 	// Check if this is a form submission (redirect) or API call (JSON)
 	if r.Header.Get("Content-Type") != "application/json" {
 		// Form submission - redirect to agents page
+		if strings.HasPrefix(agentID, "queued-") {
+			SetWarningFlash(w, "Agent queued - another agent is currently running")
+		} else {
+			SetSuccessFlash(w, fmt.Sprintf("Agent %s created successfully", agentID))
+		}
 		http.Redirect(w, r, "/agents", http.StatusSeeOther)
 		return
 	}
@@ -418,7 +444,8 @@ func handleGitCommit(w http.ResponseWriter, r *http.Request) {
 	// Check if this is a form submission (redirect) or API call (JSON)
 	if r.Header.Get("Content-Type") != "application/json" {
 		// Form submission - redirect back to git page
-		http.Redirect(w, r, fmt.Sprintf("/git?folder=%s&success=commit_launched", req.Folder), http.StatusSeeOther)
+		SetSuccessFlash(w, fmt.Sprintf("Commit agent launched for directory: %s. The AI will review changes and create an appropriate commit.", req.Folder))
+		http.Redirect(w, r, fmt.Sprintf("/git?folder=%s", req.Folder), http.StatusSeeOther)
 		return
 	}
 	
@@ -682,4 +709,55 @@ func handlePRReview(w http.ResponseWriter, r *http.Request) {
 		"success": true,
 		"message": fmt.Sprintf("PR review agent launched. The AI will %s the pull request.", actionText),
 	})
+}
+
+func handleCheckDirectory(w http.ResponseWriter, r *http.Request) {
+	// Get directory from query params
+	dir := r.URL.Query().Get("dir")
+	if dir == "" {
+		dir = "."
+	}
+
+	// Resolve the directory path
+	absDir, err := ResolvePath(dir)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"exists": false,
+			"isGitRepo": false,
+			"error": fmt.Sprintf("Error resolving directory path: %v", err),
+		})
+		return
+	}
+
+	// Check if directory exists
+	info, err := os.Stat(absDir)
+	exists := err == nil && info.IsDir()
+	
+	response := map[string]interface{}{
+		"exists": exists,
+		"isGitRepo": false,
+		"branches": []string{},
+	}
+
+	if !exists {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	// Check if it's a git repository
+	isRepo := isGitRepo(absDir)
+	response["isGitRepo"] = isRepo
+
+	if isRepo {
+		// Get list of branches
+		branches, err := listGitBranches(absDir)
+		if err == nil {
+			response["branches"] = branches
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }

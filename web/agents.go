@@ -109,7 +109,7 @@ func getRunningTime(agent AgentStatus) string {
 	return " for " + formatDuration(elapsed)
 }
 
-func AgentsSection(agents []AgentStatus, modalParam string) g.Node {
+func AgentsSection(agents []AgentStatus, modalParam string, workDir string, branches []string) g.Node {
 	// Categorize agents
 	planning, queued, running, finished := categorizeAgents(agents)
 
@@ -180,7 +180,7 @@ func AgentsSection(agents []AgentStatus, modalParam string) g.Node {
 		),
 		// Render modal if query param is set
 		g.If(showModal,
-			CreateAgentModal(),
+			CreateAgentModal(workDir, branches),
 		),
 	)
 }
@@ -283,27 +283,54 @@ func AgentCard(agent AgentStatus) g.Node {
 	)
 }
 
-func CreateAgentModal() g.Node {
+func CreateAgentModal(workDir string, branches []string) g.Node {
 	return h.Div(h.ID("create-agent-modal"), h.Class("modal"), h.Style("display: flex;"),
 		h.Div(h.Class("modal-content"),
 			h.Div(h.Class("modal-header"),
 				h.H3(g.Text("Create New Agent")),
 				h.A(h.Href("/agents"), h.Class("close-btn"), g.Text("×")),
 			),
+			// Directory check form
+			h.Form(
+				h.Method("get"),
+				h.Action("/agents"),
+				h.Style("margin-bottom: 20px;"),
+				h.Input(h.Type("hidden"), h.Name("modal"), h.Value("create")),
+				h.Div(h.Class("form-group"),
+					h.Label(h.For("check_dir"), g.Text("Working Directory (optional)")),
+					h.Div(h.Style("display: flex; gap: 10px;"),
+						h.Input(
+							h.Type("text"),
+							h.ID("check_dir"),
+							h.Name("dir"),
+							h.Value(workDir),
+							h.Placeholder("Leave empty for current dir or use . or /absolute/path"),
+							h.Style("flex: 1;"),
+							h.AutoFocus(),
+						),
+						h.Button(
+							h.Type("submit"),
+							h.Class("btn btn-sm btn-secondary"),
+							g.Text("Check Directory"),
+						),
+					),
+					g.If(workDir != "" && len(branches) > 0,
+						h.Div(h.Class("mt-2"),
+							h.Span(h.Class("text-success"), g.Text("✓ Git repository detected - branches loaded")),
+						),
+					),
+				),
+			),
+			// Main agent creation form
 			h.Form(
 				h.Method("post"),
 				h.Action("/api/code"),
 				g.Attr("enctype", "multipart/form-data"),
 
-				h.Div(h.Class("form-group"),
-					h.Label(h.For("work_dir"), g.Text("Working Directory (optional)")),
-					h.Input(
-						h.Type("text"),
-						h.ID("work_dir"),
-						h.Name("work_dir"),
-						h.Placeholder("Leave empty for current dir or use . or /absolute/path"),
-						h.AutoFocus(),
-					),
+				h.Input(
+					h.Type("hidden"),
+					h.Name("work_dir"),
+					h.Value(workDir),
 				),
 
 				h.Div(h.Class("form-group"),
@@ -312,7 +339,16 @@ func CreateAgentModal() g.Node {
 						h.Type("text"),
 						h.ID("branch"),
 						h.Name("branch"),
+						h.List("branch-list"),
 						h.Placeholder("Leave empty for default behavior, or specify branch name"),
+					),
+					// Add datalist for branch suggestions
+					g.If(len(branches) > 0,
+						h.DataList(h.ID("branch-list"),
+							g.Group(g.Map(branches, func(branch string) g.Node {
+								return h.Option(h.Value(branch))
+							})),
+						),
 					),
 					h.Small(h.Class("text-muted"), g.Text("If specified: uses existing branch or creates new feature branch")),
 				),

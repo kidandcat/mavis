@@ -1,6 +1,9 @@
 package web
 
 import (
+	"fmt"
+	"net/http"
+	
 	g "maragu.dev/gomponents"
 	c "maragu.dev/gomponents/components"
 	h "maragu.dev/gomponents/html"
@@ -21,15 +24,26 @@ func Layout(title string, children ...g.Node) g.Node {
 	)
 }
 
-func DashboardLayout(children ...g.Node) g.Node {
-	return DashboardLayoutWithRefresh(children, true)
+func FlashMessageComponent(flash *FlashMessage) g.Node {
+	if flash == nil {
+		return nil
+	}
+	
+	return h.Div(
+		h.Class(fmt.Sprintf("notification %s", flash.Type)),
+		g.Text(flash.Message),
+	)
 }
 
-func DashboardLayoutNoRefresh(children ...g.Node) g.Node {
-	return DashboardLayoutWithRefresh(children, false)
+func DashboardLayout(w http.ResponseWriter, r *http.Request, children ...g.Node) g.Node {
+	return DashboardLayoutWithRefresh(w, r, children, true)
 }
 
-func DashboardLayoutWithRefresh(children []g.Node, autoRefresh bool) g.Node {
+func DashboardLayoutNoRefresh(w http.ResponseWriter, r *http.Request, children ...g.Node) g.Node {
+	return DashboardLayoutWithRefresh(w, r, children, false)
+}
+
+func DashboardLayoutWithRefresh(w http.ResponseWriter, r *http.Request, children []g.Node, autoRefresh bool) g.Node {
 	headNodes := []g.Node{
 		h.Meta(h.Charset("UTF-8")),
 		h.Meta(h.Name("viewport"), h.Content("width=device-width, initial-scale=1.0")),
@@ -40,6 +54,9 @@ func DashboardLayoutWithRefresh(children []g.Node, autoRefresh bool) g.Node {
 	if autoRefresh {
 		headNodes = append(headNodes, h.Meta(g.Attr("http-equiv", "refresh"), h.Content("5")))
 	}
+
+	// Get flash message
+	flash := GetFlash(w, r)
 
 	return c.HTML5(
 		c.HTML5Props{
@@ -59,6 +76,12 @@ func DashboardLayoutWithRefresh(children []g.Node, autoRefresh bool) g.Node {
 					),
 				),
 				h.Div(h.Class("main-content"),
+					// Add flash message if present
+					g.If(flash != nil,
+						h.Div(h.Class("container"),
+							FlashMessageComponent(flash),
+						),
+					),
 					h.Main(h.ID("main-content"), h.Class("section"), g.Group(children)),
 				),
 				// Minimal JavaScript for scroll position preservation only

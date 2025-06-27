@@ -140,7 +140,7 @@ a:hover {
 /* Main Content */
 .main-content {
     flex: 1;
-    padding: var(--space-lg);
+    padding: 0 var(--space-lg) var(--space-lg) var(--space-lg);
     background: var(--dark-bg);
 }
 
@@ -439,7 +439,6 @@ small, .text-muted {
     word-wrap: break-word;
     font-size: 0.8rem;
     color: var(--text-secondary);
-    max-height: 200px;
     overflow-y: auto;
     overflow-x: hidden;
 }
@@ -457,7 +456,6 @@ small, .text-muted {
     word-wrap: break-word;
     font-size: 0.8rem;
     color: var(--text-secondary);
-    max-height: 200px;
     overflow-y: auto;
     overflow-x: hidden;
 }
@@ -572,6 +570,19 @@ tr:hover {
     border-radius: 4px;
     margin: var(--space-sm) 0;
     border: 1px solid;
+    position: relative;
+    animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 .notification.success {

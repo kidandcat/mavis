@@ -1098,3 +1098,57 @@ Task: %s`, branchName, task, branchName, branchName, task)
 
 	return agentID, nil
 }
+
+
+// listGitBranches returns a list of all branches (local and remote) in a git repository
+func listGitBranches(workDir string) ([]string, error) {
+	branches := []string{}
+	
+	// Get local branches
+	cmd := exec.Command("git", "branch", "--format=%(refname:short)")
+	cmd.Dir = workDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list local branches: %v", err)
+	}
+	
+	// Parse local branches
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, line := range lines {
+		branch := strings.TrimSpace(line)
+		if branch != "" {
+			branches = append(branches, branch)
+		}
+	}
+	
+	// Get remote branches
+	cmd = exec.Command("git", "branch", "-r", "--format=%(refname:short)")
+	cmd.Dir = workDir
+	output, err = cmd.CombinedOutput()
+	if err != nil {
+		// If remote fetch fails, just return local branches
+		return branches, nil
+	}
+	
+	// Parse remote branches and add unique ones
+	branchMap := make(map[string]bool)
+	for _, branch := range branches {
+		branchMap[branch] = true
+	}
+	
+	lines = strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, line := range lines {
+		branch := strings.TrimSpace(line)
+		// Remove "origin/" prefix if present
+		if strings.HasPrefix(branch, "origin/") {
+			branch = strings.TrimPrefix(branch, "origin/")
+		}
+		// Skip HEAD reference
+		if branch != "" && branch != "HEAD" && !branchMap[branch] {
+			branches = append(branches, branch)
+			branchMap[branch] = true
+		}
+	}
+	
+	return branches, nil
+}
