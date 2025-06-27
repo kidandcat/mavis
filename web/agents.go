@@ -284,6 +284,9 @@ func AgentCard(agent AgentStatus) g.Node {
 }
 
 func CreateAgentModal(workDir string, branches []string) g.Node {
+	// Determine if fields should be disabled (only enabled if workDir has been checked)
+	fieldsDisabled := workDir == ""
+	
 	return h.Div(h.ID("create-agent-modal"), h.Class("modal"), h.Style("display: flex;"),
 		h.Div(h.Class("modal-content"),
 			h.Div(h.Class("modal-header"),
@@ -292,6 +295,7 @@ func CreateAgentModal(workDir string, branches []string) g.Node {
 			),
 			// Directory check form
 			h.Form(
+				h.ID("dir-check-form"),
 				h.Method("get"),
 				h.Action("/agents"),
 				h.Style("margin-bottom: 20px;"),
@@ -310,8 +314,9 @@ func CreateAgentModal(workDir string, branches []string) g.Node {
 						),
 						h.Button(
 							h.Type("submit"),
+							h.ID("check-dir-btn"),
 							h.Class("btn btn-sm btn-secondary"),
-							g.Text("Check Directory"),
+							g.Text("Load Branches"),
 						),
 					),
 					g.If(workDir != "" && len(branches) > 0,
@@ -323,6 +328,7 @@ func CreateAgentModal(workDir string, branches []string) g.Node {
 			),
 			// Main agent creation form
 			h.Form(
+				h.ID("create-agent-form"),
 				h.Method("post"),
 				h.Action("/api/code"),
 				g.Attr("enctype", "multipart/form-data"),
@@ -341,6 +347,7 @@ func CreateAgentModal(workDir string, branches []string) g.Node {
 						h.Name("branch"),
 						h.List("branch-list"),
 						h.Placeholder("Leave empty for default behavior, or specify branch name"),
+						g.If(fieldsDisabled, h.Disabled()),
 					),
 					// Add datalist for branch suggestions
 					g.If(len(branches) > 0,
@@ -361,11 +368,18 @@ func CreateAgentModal(workDir string, branches []string) g.Node {
 						h.Rows("4"),
 						h.Required(),
 						h.Placeholder("Enter the task for the agent..."),
+						g.If(fieldsDisabled, h.Disabled()),
 					),
 				),
 
 				h.Div(h.Class("form-actions"),
-					h.Button(h.Type("submit"), h.Class("btn btn-primary"), g.Text("Create Agent")),
+					h.Button(
+						h.Type("submit"),
+						h.ID("create-agent-btn"),
+						h.Class("btn btn-primary"),
+						g.Text("Create Agent"),
+						g.If(fieldsDisabled, h.Disabled()),
+					),
 					h.A(h.Href("/agents"), h.Class("btn btn-secondary"), g.Text("Cancel")),
 				),
 			),

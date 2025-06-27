@@ -155,7 +155,7 @@ a:hover {
     justify-content: space-between;
     align-items: center;
     margin-bottom: var(--space-lg);
-    padding-bottom: var(--space-sm);
+    padding-top: var(--space-sm);
     border-bottom: 1px solid var(--panel-border);
 }
 
@@ -273,6 +273,28 @@ select:focus {
 textarea {
     resize: vertical;
     min-height: 100px;
+}
+
+/* Disabled state for form elements */
+input[type="text"]:disabled,
+input[type="email"]:disabled,
+input[type="password"]:disabled,
+input[type="file"]:disabled,
+input[type="url"]:disabled,
+textarea:disabled,
+select:disabled,
+.btn:disabled,
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: var(--dark-bg);
+}
+
+.btn:disabled:hover,
+button:disabled:hover {
+    background: var(--dark-bg);
+    transform: none;
+    box-shadow: none;
 }
 
 /* Small text helper */

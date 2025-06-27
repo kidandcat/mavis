@@ -29,5 +29,19 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         });
     }
+
+    // Handle Create Agent modal directory check on Enter key
+    const checkDirInput = document.getElementById('check_dir');
+    const dirCheckForm = document.getElementById('dir-check-form');
+    
+    if (checkDirInput && dirCheckForm) {
+        checkDirInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                // Submit the directory check form
+                dirCheckForm.submit();
+            }
+        });
+    }
 });
 

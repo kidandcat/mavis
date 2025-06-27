@@ -443,9 +443,9 @@ func handleGitCommit(w http.ResponseWriter, r *http.Request) {
 
 	// Check if this is a form submission (redirect) or API call (JSON)
 	if r.Header.Get("Content-Type") != "application/json" {
-		// Form submission - redirect back to git page
+		// Form submission - redirect to agents page
 		SetSuccessFlash(w, fmt.Sprintf("Commit agent launched for directory: %s. The AI will review changes and create an appropriate commit.", req.Folder))
-		http.Redirect(w, r, fmt.Sprintf("/git?folder=%s", req.Folder), http.StatusSeeOther)
+		http.Redirect(w, r, "/agents", http.StatusSeeOther)
 		return
 	}
 	
