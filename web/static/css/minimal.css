@@ -154,6 +154,7 @@ a:hover {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    margin-top: 10px;
     margin-bottom: var(--space-lg);
     padding-top: var(--space-sm);
     border-bottom: 1px solid var(--panel-border);
@@ -383,6 +384,11 @@ small, .text-muted {
     border-color: var(--warning-color);
 }
 
+.agent-card.preparing {
+    border-color: var(--info-color);
+    background: rgba(0, 170, 255, 0.05);
+}
+
 .agent-header {
     display: flex;
     justify-content: space-between;
@@ -420,6 +426,17 @@ small, .text-muted {
 .agent-card.queued .agent-status {
     background: rgba(255, 170, 0, 0.2);
     color: var(--warning-color);
+}
+
+.agent-card.preparing .agent-status {
+    background: rgba(0, 170, 255, 0.2);
+    color: var(--info-color);
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
 }
 
 .agent-task {
@@ -480,6 +497,32 @@ small, .text-muted {
     color: var(--text-secondary);
     overflow-y: auto;
     overflow-x: hidden;
+}
+
+.agent-plan-content {
+    margin-top: var(--space-xs);
+    padding: var(--space-xs);
+    background: rgba(255, 0, 85, 0.05);
+    border: 1px solid rgba(255, 0, 85, 0.2);
+    border-radius: 4px;
+}
+
+.agent-plan-content .plan-header {
+    color: var(--danger-color);
+    margin-bottom: 0.25rem;
+    font-weight: bold;
+    font-size: 0.85rem;
+}
+
+.agent-plan-content .plan-content pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    overflow-y: auto;
+    overflow-x: hidden;
+    max-height: 300px;
 }
 
 .agent-time {
@@ -594,6 +637,7 @@ tr:hover {
     border: 1px solid;
     position: relative;
     animation: slideDown 0.3s ease-out;
+    view-transition-name: notification;
 }
 
 @keyframes slideDown {
@@ -604,6 +648,26 @@ tr:hover {
     to {
         opacity: 1;
         transform: translateY(0);
+    }
+}
+
+/* View Transitions for notifications */
+::view-transition-old(notification-exit) {
+    animation: slideOut 0.3s ease-in forwards;
+}
+
+::view-transition-new(notification-exit) {
+    animation: none;
+}
+
+@keyframes slideOut {
+    from {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    to {
+        opacity: 0;
+        transform: translateY(-20px);
     }
 }
 
@@ -797,3 +861,82 @@ code {
 .p-2 { padding: var(--space-sm); }
 .p-3 { padding: var(--space-md); }
 .p-4 { padding: var(--space-lg); }
+
+/* MCP Checkbox Styles */
+.mcp-checkboxes {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    max-height: 200px;
+    overflow-y: auto;
+    padding: var(--space-xs);
+    background: var(--darker-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 4px;
+}
+
+.checkbox-wrapper {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: var(--space-xs);
+    transition: background-color var(--transition-speed);
+}
+
+.checkbox-wrapper:hover {
+    background-color: rgba(0, 255, 255, 0.05);
+}
+
+.mcp-checkbox {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--primary-color);
+    cursor: pointer;
+}
+
+.checkbox-wrapper label {
+    flex: 1;
+    cursor: pointer;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    margin: 0;
+}
+
+.checkbox-wrapper label:hover {
+    color: var(--primary-color);
+}
+
+/* MCP Table Styles */
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+}
+
+.data-table th,
+.data-table td {
+    padding: var(--space-sm);
+    text-align: left;
+    border-bottom: 1px solid var(--panel-border);
+}
+
+.data-table th {
+    background: var(--darker-bg);
+    color: var(--primary-color);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.data-table tr:hover {
+    background-color: rgba(0, 255, 255, 0.05);
+}
+
+.data-table code {
+    font-size: 0.85rem;
+    background: var(--darker-bg);
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: var(--info-color);
+}

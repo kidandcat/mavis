@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"mavis/codeagent"
 	"mavis/core"
 	"syscall"
 )
@@ -35,6 +37,8 @@ type AgentStatusInfo struct {
 	IsStale      bool
 	Output       string
 	Duration     time.Duration
+	Error        string
+	PlanContent  string
 }
 
 // GetAllAgentsStatusJSON returns status of all active agents for web interface
@@ -60,6 +64,8 @@ func GetAllAgentsStatusJSON() []AgentStatusInfo {
 			IsStale:      false,
 			Output:       agent.Output,
 			Duration:     agent.Duration,
+			Error:        agent.Error,
+			PlanContent:  agent.PlanContent,
 		})
 	}
 
@@ -79,6 +85,9 @@ func GetAllAgentsStatusJSON() []AgentStatusInfo {
 			})
 		}
 	}
+
+	// Note: Preparing agents are temporary and not tracked in agentManager
+	// They will be replaced by actual agents once preparation is complete
 
 	return result
 }
@@ -156,8 +165,9 @@ func getAgentProgress(agentID string) string {
 				if strings.HasPrefix(line, "## Progress") {
 					inProgress = true
 					continue
-				} else if inProgress && strings.HasPrefix(line, "##") {
-					// End of progress section
+				} else if inProgress && strings.HasPrefix(line, "## ") && !strings.HasPrefix(line, "## Progress") {
+					// End of progress section - only break on actual section headers (## followed by space)
+					// not on subsections like ### or ####
 					break
 				}
 
@@ -200,8 +210,9 @@ func getAgentPlan(agentID string) string {
 				if strings.HasPrefix(line, "## Plan") {
 					inPlan = true
 					continue
-				} else if inPlan && strings.HasPrefix(line, "##") {
-					// End of plan section
+				} else if inPlan && strings.HasPrefix(line, "## ") && !strings.HasPrefix(line, "## Plan") {
+					// End of plan section - only break on actual section headers (## followed by space)
+					// not on subsections like ### or ####
 					break
 				}
 
@@ -290,7 +301,7 @@ func stopAgent(agentID string) error {
 	return StopAgent(agentID)
 }
 
-func createCodeAgent(task, workDir string) (string, error) {
+func createCodeAgent(task, workDir string, selectedMCPs []string) (string, error) {
 	if workDir == "" {
 		workDir = "."
 	}
@@ -302,10 +313,32 @@ func createCodeAgent(task, workDir string) (string, error) {
 	}
 	workDir = absPath
 
+	// Create MCP config file if MCPs are selected
+	var backupFile string
+	if len(selectedMCPs) > 0 {
+		backupFile, err = CreateMCPConfigFile(workDir, selectedMCPs, mcpStore)
+		if err != nil {
+			return "", fmt.Errorf("failed to create MCP config: %w", err)
+		}
+	}
+
 	// Use the agent manager to create the agent
 	agentID, err := agentManager.LaunchAgent(context.Background(), workDir, task)
 	if err != nil {
+		// Restore MCP config if agent launch failed
+		if backupFile != "" {
+			RestoreMCPConfigFile(workDir, backupFile)
+		}
 		return "", err
+	}
+
+	// Set up cleanup callback for when agent finishes
+	if backupFile != "" {
+		if agent, err := agentManager.GetAgent(agentID); err == nil && agent != nil {
+			agent.SetCompletionCallback(func(a *codeagent.Agent) {
+				RestoreMCPConfigFile(workDir, backupFile)
+			})
+		}
 	}
 
 	// Send Telegram notification about the agent launch
@@ -962,12 +995,12 @@ func checkBranchExists(workDir, branch string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("failed to check local branches: %v", err)
 	}
-	
+
 	// Check if branch exists locally
 	if len(strings.TrimSpace(string(output))) > 0 {
 		return true, nil
 	}
-	
+
 	// Check remote branches
 	cmd = exec.Command("git", "branch", "-r", "--list", fmt.Sprintf("origin/%s", branch))
 	cmd.Dir = workDir
@@ -975,13 +1008,13 @@ func checkBranchExists(workDir, branch string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("failed to check remote branches: %v", err)
 	}
-	
+
 	// Return true if branch exists remotely
 	return len(strings.TrimSpace(string(output))) > 0, nil
 }
 
 // createAgentWithBranch creates an agent with appropriate git behavior based on branch parameter
-func createAgentWithBranch(task, workDir, branch string) (string, error) {
+func createAgentWithBranch(task, workDir, branch string, selectedMCPs []string) (string, error) {
 	if workDir == "" {
 		workDir = "."
 	}
@@ -995,7 +1028,7 @@ func createAgentWithBranch(task, workDir, branch string) (string, error) {
 
 	// If no branch specified, use default code behavior
 	if branch == "" {
-		return createCodeAgent(task, workDir)
+		return createCodeAgent(task, workDir, selectedMCPs)
 	}
 
 	// Check if it's a git repository
@@ -1003,31 +1036,54 @@ func createAgentWithBranch(task, workDir, branch string) (string, error) {
 		return "", fmt.Errorf("branch specified but directory is not a git repository: %s", workDir)
 	}
 
-	// Create a temp directory for git operations
-	tempDir, err := os.MkdirTemp("", "git-agent-*")
-	if err != nil {
-		return "", fmt.Errorf("failed to create temp directory: %v", err)
-	}
+	// Generate a temporary agent ID for tracking
+	tempAgentID := fmt.Sprintf("preparing-%s-%d", strings.ReplaceAll(branch, "/", "-"), time.Now().Unix())
 
-	// Copy the repository to temp directory
-	cmd := exec.Command("rsync", "-av", "--exclude=node_modules", "--exclude=.DS_Store", workDir+"/", tempDir+"/")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		os.RemoveAll(tempDir)
-		return "", fmt.Errorf("failed to copy repository: %v\nOutput: %s", err, string(output))
-	}
+	// Launch background goroutine to handle git operations
+	go func(selectedMCPs []string) {
+		// Create a temp directory for git operations
+		tempDir, err := os.MkdirTemp("", "git-agent-*")
+		if err != nil {
+			log.Printf("Failed to create temp directory: %v", err)
+			// Send error notification if possible
+			if b != nil && AdminUserID != 0 {
+				message := fmt.Sprintf("❌ Failed to prepare git agent:\n%v", err)
+				core.SendMessage(context.Background(), b, AdminUserID, message)
+			}
+			return
+		}
 
-	// Check if branch exists
-	branchExists, err := checkBranchExists(tempDir, branch)
-	if err != nil {
-		os.RemoveAll(tempDir)
-		return "", fmt.Errorf("failed to check branch: %v", err)
-	}
+		// Copy the repository to temp directory
+		cmd := exec.Command("rsync", "-av", "--exclude=node_modules", "--exclude=.DS_Store", workDir+"/", tempDir+"/")
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			os.RemoveAll(tempDir)
+			log.Printf("Failed to copy repository: %v\nOutput: %s", err, string(output))
+			// Send error notification if possible
+			if b != nil && AdminUserID != 0 {
+				message := fmt.Sprintf("❌ Failed to prepare git agent:\nFailed to copy repository: %v", err)
+				core.SendMessage(context.Background(), b, AdminUserID, message)
+			}
+			return
+		}
 
-	var gitPrompt string
-	if branchExists {
-		// Use edit_branch behavior
-		gitPrompt = fmt.Sprintf(`IMPORTANT GIT WORKFLOW INSTRUCTIONS:
+		// Check if branch exists
+		branchExists, err := checkBranchExists(tempDir, branch)
+		if err != nil {
+			os.RemoveAll(tempDir)
+			log.Printf("Failed to check branch: %v", err)
+			// Send error notification if possible
+			if b != nil && AdminUserID != 0 {
+				message := fmt.Sprintf("❌ Failed to prepare git agent:\nFailed to check branch: %v", err)
+				core.SendMessage(context.Background(), b, AdminUserID, message)
+			}
+			return
+		}
+
+		var gitPrompt string
+		if branchExists {
+			// Use edit_branch behavior
+			gitPrompt = fmt.Sprintf(`IMPORTANT GIT WORKFLOW INSTRUCTIONS:
 You are working on a git repository with an existing branch. You MUST follow these steps:
 
 1. First, fetch the latest changes: git fetch origin
@@ -1050,14 +1106,14 @@ Remember:
 - NEVER commit *_PLAN_*.md files - they're for your planning only
 
 Task: %s`, branch, branch, branch, branch, branch, task, branch, branch, task)
-	} else {
-		// Use new_branch behavior - create feature branch
-		branchName := branch
-		if !strings.HasPrefix(branch, "feature/") {
-			branchName = fmt.Sprintf("feature/%s", branch)
-		}
-		
-		gitPrompt = fmt.Sprintf(`IMPORTANT GIT WORKFLOW INSTRUCTIONS:
+		} else {
+			// Use new_branch behavior - create feature branch
+			branchName := branch
+			if !strings.HasPrefix(branch, "feature/") {
+				branchName = fmt.Sprintf("feature/%s", branch)
+			}
+
+			gitPrompt = fmt.Sprintf(`IMPORTANT GIT WORKFLOW INSTRUCTIONS:
 You are working on a git repository. You MUST follow these steps:
 
 1. First, create a new branch for your changes using: git checkout -b %s
@@ -1076,34 +1132,72 @@ Remember:
 - NEVER commit *_PLAN_*.md files - they're for your planning only
 
 Task: %s`, branchName, task, branchName, branchName, task)
-	}
-
-	// Launch the agent with the git-specific prompt
-	agentID, err := agentManager.LaunchAgent(context.Background(), tempDir, gitPrompt)
-	if err != nil {
-		os.RemoveAll(tempDir)
-		return "", err
-	}
-
-	// Send Telegram notification about the agent launch
-	if b != nil && AdminUserID != 0 {
-		behaviorType := "edit_branch"
-		if !branchExists {
-			behaviorType = "new_branch"
 		}
-		message := fmt.Sprintf("🌐 Git-aware code agent launched from Web UI!\n🆔 ID: `%s`\n📝 Task: %s\n🌿 Branch: %s (%s)\n📁 Original: %s\n📁 Workspace: %s\n\nUse `/status %s` to check status.",
-			agentID, task, branch, behaviorType, workDir, tempDir, agentID)
-		core.SendMessage(context.Background(), b, AdminUserID, message)
-	}
 
-	return agentID, nil
+		// Create MCP config file if MCPs are selected
+		var backupFile string
+		if len(selectedMCPs) > 0 {
+			backupFile, err = CreateMCPConfigFile(tempDir, selectedMCPs, mcpStore)
+			if err != nil {
+				os.RemoveAll(tempDir)
+				log.Printf("Failed to create MCP config: %v", err)
+				// Send error notification if possible
+				if b != nil && AdminUserID != 0 {
+					message := fmt.Sprintf("❌ Failed to create MCP config:\n%v", err)
+					core.SendMessage(context.Background(), b, AdminUserID, message)
+				}
+				return
+			}
+		}
+
+		// Launch the agent with the git-specific prompt
+		agentID, err := agentManager.LaunchAgent(context.Background(), tempDir, gitPrompt)
+		if err != nil {
+			// Restore MCP config if needed
+			if backupFile != "" {
+				RestoreMCPConfigFile(tempDir, backupFile)
+			}
+			os.RemoveAll(tempDir)
+			log.Printf("Failed to launch agent: %v", err)
+			// Send error notification if possible
+			if b != nil && AdminUserID != 0 {
+				message := fmt.Sprintf("❌ Failed to launch git agent:\n%v", err)
+				core.SendMessage(context.Background(), b, AdminUserID, message)
+			}
+			return
+		}
+
+		// Set up cleanup callback for when agent finishes
+		if agent, err := agentManager.GetAgent(agentID); err == nil && agent != nil {
+			agent.SetCompletionCallback(func(a *codeagent.Agent) {
+				// Restore MCP config
+				if backupFile != "" {
+					RestoreMCPConfigFile(tempDir, backupFile)
+				}
+				// Note: tempDir cleanup is handled elsewhere
+			})
+		}
+
+		// Send success notification
+		if b != nil && AdminUserID != 0 {
+			behaviorType := "edit_branch"
+			if !branchExists {
+				behaviorType = "new_branch"
+			}
+			message := fmt.Sprintf("✅ Git-aware code agent successfully launched!\n🆔 ID: `%s`\n📝 Task: %s\n🌿 Branch: %s (%s)\n📁 Original: %s\n📁 Workspace: %s\n\nUse `/status %s` to check status.",
+				agentID, task, branch, behaviorType, workDir, tempDir, agentID)
+			core.SendMessage(context.Background(), b, AdminUserID, message)
+		}
+	}(selectedMCPs)
+
+	// Return immediately with a status indicating the agent is being prepared
+	return tempAgentID, nil
 }
-
 
 // listGitBranches returns a list of all branches (local and remote) in a git repository
 func listGitBranches(workDir string) ([]string, error) {
 	branches := []string{}
-	
+
 	// Get local branches
 	cmd := exec.Command("git", "branch", "--format=%(refname:short)")
 	cmd.Dir = workDir
@@ -1111,7 +1205,7 @@ func listGitBranches(workDir string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to list local branches: %v", err)
 	}
-	
+
 	// Parse local branches
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	for _, line := range lines {
@@ -1120,7 +1214,7 @@ func listGitBranches(workDir string) ([]string, error) {
 			branches = append(branches, branch)
 		}
 	}
-	
+
 	// Get remote branches
 	cmd = exec.Command("git", "branch", "-r", "--format=%(refname:short)")
 	cmd.Dir = workDir
@@ -1129,13 +1223,13 @@ func listGitBranches(workDir string) ([]string, error) {
 		// If remote fetch fails, just return local branches
 		return branches, nil
 	}
-	
+
 	// Parse remote branches and add unique ones
 	branchMap := make(map[string]bool)
 	for _, branch := range branches {
 		branchMap[branch] = true
 	}
-	
+
 	lines = strings.Split(strings.TrimSpace(string(output)), "\n")
 	for _, line := range lines {
 		branch := strings.TrimSpace(line)
@@ -1149,6 +1243,6 @@ func listGitBranches(workDir string) ([]string, error) {
 			branchMap[branch] = true
 		}
 	}
-	
+
 	return branches, nil
 }

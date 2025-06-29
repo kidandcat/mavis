@@ -18,9 +18,10 @@ import (
 )
 
 type CreateAgentRequest struct {
-	Task    string `json:"task"`
-	WorkDir string `json:"work_dir"`
-	Branch  string `json:"branch"`
+	Task         string   `json:"task"`
+	WorkDir      string   `json:"work_dir"`
+	Branch       string   `json:"branch"`
+	SelectedMCPs []string `json:"selected_mcps"`
 }
 
 // Login handler removed - authentication disabled for local network use
@@ -84,6 +85,8 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 			Plan:         plan,
 			Output:       agent.Output,
 			Duration:     agent.Duration,
+			Error:        agent.Error,
+			PlanContent:  agent.PlanContent,
 		}
 	}
 
@@ -150,6 +153,8 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 		content = GitSection(folderPath, diff, showDiff)
 	case "/system":
 		content = SystemSection()
+	case "/mcps":
+		content = MCPsSection()
 	default:
 		content = AgentsSection(agentStatuses, modalParam, dirParam, branches)
 	}
@@ -294,6 +299,9 @@ func handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 		req.Task = r.FormValue("task")
 		req.WorkDir = r.FormValue("work_dir")
 		req.Branch = r.FormValue("branch")
+		// Get selected MCPs from form checkboxes
+		r.ParseForm()
+		req.SelectedMCPs = r.Form["selected_mcps"]
 	}
 
 	if req.Task == "" {
@@ -301,7 +309,7 @@ func handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	agentID, err := createAgentWithBranch(req.Task, req.WorkDir, req.Branch)
+	agentID, err := createAgentWithBranch(req.Task, req.WorkDir, req.Branch, req.SelectedMCPs)
 	if err != nil {
 		// Check if this is a form submission
 		if r.Header.Get("Content-Type") != "application/json" {
@@ -319,6 +327,8 @@ func handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 		// Form submission - redirect to agents page
 		if strings.HasPrefix(agentID, "queued-") {
 			SetWarningFlash(w, "Agent queued - another agent is currently running")
+		} else if strings.HasPrefix(agentID, "preparing-") {
+			SetSuccessFlash(w, "Agent is being prepared with git branch setup. You'll be notified when it's ready.")
 		} else {
 			SetSuccessFlash(w, fmt.Sprintf("Agent %s created successfully", agentID))
 		}
@@ -327,6 +337,22 @@ func handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	// API call - return JSON response
+	// Check if agent is being prepared
+	if strings.HasPrefix(agentID, "preparing-") {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"ID":            agentID,
+			"Task":          req.Task,
+			"Status":        "preparing",
+			"Message":       "Agent is being prepared with git branch setup. You'll be notified when it's ready.",
+			"StartTime":     time.Now(),
+			"LastActive":    time.Now(),
+			"MessagesSent":  0,
+			"IsStale":       false,
+		})
+		return
+	}
+	
 	// Check if agent was queued
 	if strings.HasPrefix(agentID, "queued-") {
 		// Parse queue information

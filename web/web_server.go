@@ -4,6 +4,7 @@
 package web
 
 import (
+	"encoding/json"
 	"log"
 	"net/http"
 	"strings"
@@ -37,6 +38,7 @@ func StartWebServer(port string) error {
 	mux.HandleFunc("/files", handleDashboard)
 	mux.HandleFunc("/git", handleDashboard)
 	mux.HandleFunc("/system", handleDashboard)
+	mux.HandleFunc("/mcps", handleDashboard)
 
 	// API endpoints for AJAX
 	mux.HandleFunc("/api/agent/", handleAgentRoutes)
@@ -53,6 +55,7 @@ func StartWebServer(port string) error {
 
 	// JSON API endpoints
 	mux.HandleFunc("/api/agents", handleWebAgents)
+	mux.HandleFunc("/api/mcps", handleMCPRoutes)
 
 	// SSE removed - using meta refresh instead
 	// mux.HandleFunc("/events", handleSSE)
@@ -87,6 +90,72 @@ func handleAgentRoutes(w http.ResponseWriter, r *http.Request) {
 		handleDeleteAgent(w, r)
 	} else {
 		http.Error(w, "Not found", http.StatusNotFound)
+	}
+}
+
+func handleMCPRoutes(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		// List all MCPs
+		mcps := mcpStore.List()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(mcps)
+		
+	case http.MethodPost:
+		// Create new MCP
+		var mcp MCP
+		if err := json.NewDecoder(r.Body).Decode(&mcp); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		
+		if err := mcpStore.Add(&mcp); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(mcp)
+		
+	case http.MethodPut:
+		// Update existing MCP
+		id := r.URL.Query().Get("id")
+		if id == "" {
+			http.Error(w, "Missing MCP ID", http.StatusBadRequest)
+			return
+		}
+		
+		var mcp MCP
+		if err := json.NewDecoder(r.Body).Decode(&mcp); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		
+		if err := mcpStore.Update(id, &mcp); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(mcp)
+		
+	case http.MethodDelete:
+		// Delete MCP
+		id := r.URL.Query().Get("id")
+		if id == "" {
+			http.Error(w, "Missing MCP ID", http.StatusBadRequest)
+			return
+		}
+		
+		if err := mcpStore.Delete(id); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		
+		w.WriteHeader(http.StatusOK)
+		
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 

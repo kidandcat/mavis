@@ -4,6 +4,7 @@
 package web
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -316,3 +317,145 @@ func TestGetCurrentUserID(t *testing.T) {
 	}
 }
 */
+
+// Test to debug the actual getAgentProgress function
+func TestGetAgentProgressDebug(t *testing.T) {
+	// Test with a mock scenario to see what happens in getAgentProgress
+	t.Run("Debug getAgentProgress Logic", func(t *testing.T) {
+		// This simulates what should happen in getAgentProgress when it processes
+		// a CURRENT_PLAN.md file with real progress content
+
+		planContent := `# Current Task Plan
+
+## Task
+allow the superadmin to configure the door parameters with the protocol.CommandConfig from the community accesos page (the config should be visible and editable only to superadmins).
+
+And be sure the go server resends the config command when a device reconnects
+
+## Plan
+1. **Analyze existing codebase structure**:
+   - Locate the community accesos page components
+   - Find protocol.CommandConfig definition and usage
+   - Understand the current door configuration structure
+   - Check superadmin permission checks
+
+2. **Frontend implementation**:
+   - Add configuration UI to the community accesos page (only visible to superadmins)
+   - Create form fields for CommandConfig parameters
+   - Implement API calls to save/update configuration
+
+3. **Backend implementation**:
+   - Create/update API endpoints for door configuration
+   - Add database schema/models for storing door configurations
+   - Implement superadmin permission checks
+
+4. **Go server implementation**:
+   - Modify device reconnection handler to resend configuration
+   - Store device configurations in memory/database
+   - Implement CommandConfig sending logic on reconnect
+
+5. **Testing and verification**:
+   - Test configuration UI visibility for superadmins only
+   - Verify configuration is saved correctly
+   - Test that configurations are resent on device reconnect
+
+## Progress
+### 1. Analyzed existing codebase structure ✓
+- Found protocol.CommandConfig (0x02) in protocol/protocol.go
+- Configuration uses 3 bytes in packet Data field: [openTime, pingInterval, rxTime]
+- Located access control page at app/views/access/open.html.erb
+- Found superadmin permission checks in AccessController and SuperadminController
+- Door handles config in door/door.go
+- Server handles connections in server/server.go
+- Device model lacks configuration field - needs migration`
+
+		// Extract only the progress section (exact logic from getAgentProgress)
+		lines := strings.Split(planContent, "\n")
+		inProgress := false
+		var progressLines []string
+
+		for i, line := range lines {
+			t.Logf("Line %d: '%s'", i, line)
+
+			if strings.HasPrefix(line, "## Progress") {
+				inProgress = true
+				t.Logf("  -> Found progress header at line %d", i)
+				continue
+			} else if inProgress && strings.HasPrefix(line, "## ") && !strings.HasPrefix(line, "## Progress") {
+				t.Logf("  -> Found next section header at line %d, ending progress extraction", i)
+				break
+			}
+
+			if inProgress {
+				trimmed := strings.TrimSpace(line)
+				t.Logf("  -> In progress section. Line: '%s', Trimmed: '%s', Empty: %v", line, trimmed, trimmed == "")
+				if trimmed != "" {
+					progressLines = append(progressLines, line)
+					t.Logf("  -> Added to progress lines")
+				} else {
+					t.Logf("  -> Skipped empty line")
+				}
+			}
+		}
+
+		extractedProgress := strings.Join(progressLines, "\n")
+		t.Logf("\n=== FINAL RESULTS ===")
+		t.Logf("Progress lines count: %d", len(progressLines))
+		t.Logf("Extracted progress length: %d", len(extractedProgress))
+		t.Logf("Extracted progress:\n%s", extractedProgress)
+
+		// Test the conditions that determine planning vs running
+		trimmedProgress := strings.TrimSpace(extractedProgress)
+		isEmpty := trimmedProgress == ""
+		hasPlaceholder := strings.Contains(trimmedProgress, "(The AI will update progress here as it works)")
+
+		t.Logf("\n=== CATEGORIZATION LOGIC ===")
+		t.Logf("Trimmed progress empty: %v", isEmpty)
+		t.Logf("Contains placeholder: %v", hasPlaceholder)
+		t.Logf("Would be planning: %v", isEmpty || hasPlaceholder)
+
+		// These should all pass for the agent to be categorized as "running"
+		if len(progressLines) == 0 {
+			t.Error("BUG: No progress lines extracted!")
+		}
+
+		if extractedProgress == "" {
+			t.Error("BUG: Extracted progress is empty!")
+		}
+
+		if isEmpty || hasPlaceholder {
+			t.Error("BUG: Agent would be categorized as planning instead of running!")
+		}
+	})
+}
+
+// Test what happens with different status values
+func TestAgentStatusMatching(t *testing.T) {
+	// Test the status matching logic that determines whether to extract progress
+	testCases := []struct {
+		name          string
+		agentStatus   string
+		shouldExtract bool
+	}{
+		{"running", "running", true},
+		{"active", "active", false}, // getAgentProgress only checks for "running"
+		{"pending", "pending", false},
+		{"finished", "finished", false},
+		{"failed", "failed", false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// This simulates the status check in getAgentProgress:
+			// if agentDetails.Status == "running"
+			shouldExtract := tc.agentStatus == "running"
+
+			t.Logf("Agent status: %s", tc.agentStatus)
+			t.Logf("Should extract progress: %v (expected %v)", shouldExtract, tc.shouldExtract)
+
+			if shouldExtract != tc.shouldExtract {
+				t.Errorf("Status matching logic mismatch for status '%s'", tc.agentStatus)
+			}
+		})
+	}
+}

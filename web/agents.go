@@ -23,6 +23,8 @@ type AgentStatus struct {
 	Plan         string
 	Output       string
 	Duration     time.Duration
+	Error        string
+	PlanContent  string
 }
 
 // safeSubstring safely extracts a substring, handling cases where the string is shorter than requested
@@ -41,6 +43,8 @@ func getStatusClass(agent AgentStatus) string {
 		return "failed"
 	} else if agent.Status == "queued" {
 		return "queued"
+	} else if agent.Status == "preparing" {
+		return "preparing"
 	} else if agent.Status == "running" || agent.Status == "active" {
 		return "running"
 	} else if agent.IsStale {
@@ -53,7 +57,7 @@ func getStatusClass(agent AgentStatus) string {
 func categorizeAgents(agents []AgentStatus) (planning, queued, running, finished []AgentStatus) {
 	for _, agent := range agents {
 		switch agent.Status {
-		case "queued":
+		case "queued", "preparing":
 			queued = append(queued, agent)
 		case "active", "running":
 			// Check if agent has progress to determine if it's planning or running
@@ -190,10 +194,12 @@ func AgentCard(agent AgentStatus) g.Node {
 	agentId := agent.ID
 
 	// For finished agents, show output and duration
-	if agent.Status == "finished" {
+	if agent.Status == "finished" || agent.Status == "failed" || agent.Status == "error" || agent.Status == "killed" || agent.Status == "stopped" {
 		duration := formatDuration(agent.Duration)
 		output := agent.Output
-		if output == "" {
+		if output == "" && agent.Error != "" {
+			output = agent.Error
+		} else if output == "" {
 			output = "No output available"
 		}
 
@@ -207,6 +213,15 @@ func AgentCard(agent AgentStatus) g.Node {
 			),
 			h.Div(h.Class("agent-output"),
 				h.Pre(g.Text(output)),
+			),
+			// Show CURRENT_PLAN.md content for failed agents
+			g.If(agent.PlanContent != "" && (agent.Status == "failed" || agent.Status == "error" || agent.Status == "killed" || agent.Status == "stopped"),
+				h.Div(h.Class("agent-plan-content"),
+					h.Div(h.Class("plan-header"), g.Text("CURRENT_PLAN.md at time of failure:")),
+					h.Div(h.Class("plan-content"),
+						h.Pre(g.Text(agent.PlanContent)),
+					),
+				),
 			),
 			h.Div(h.Class("agent-time"),
 				h.Span(h.Class("time-label"), g.Text("Time taken:")),
@@ -284,9 +299,6 @@ func AgentCard(agent AgentStatus) g.Node {
 }
 
 func CreateAgentModal(workDir string, branches []string) g.Node {
-	// Determine if fields should be disabled (only enabled if workDir has been checked)
-	fieldsDisabled := workDir == ""
-	
 	return h.Div(h.ID("create-agent-modal"), h.Class("modal"), h.Style("display: flex;"),
 		h.Div(h.Class("modal-content"),
 			h.Div(h.Class("modal-header"),
@@ -301,23 +313,14 @@ func CreateAgentModal(workDir string, branches []string) g.Node {
 				h.Style("margin-bottom: 20px;"),
 				h.Input(h.Type("hidden"), h.Name("modal"), h.Value("create")),
 				h.Div(h.Class("form-group"),
-					h.Label(h.For("check_dir"), g.Text("Working Directory (optional)")),
-					h.Div(h.Style("display: flex; gap: 10px;"),
-						h.Input(
-							h.Type("text"),
-							h.ID("check_dir"),
-							h.Name("dir"),
-							h.Value(workDir),
-							h.Placeholder("Leave empty for current dir or use . or /absolute/path"),
-							h.Style("flex: 1;"),
-							h.AutoFocus(),
-						),
-						h.Button(
-							h.Type("submit"),
-							h.ID("check-dir-btn"),
-							h.Class("btn btn-sm btn-secondary"),
-							g.Text("Load Branches"),
-						),
+					h.Label(h.For("check_dir"), g.Text("Working Directory (press enter)")),
+					h.Input(
+						h.Type("text"),
+						h.ID("check_dir"),
+						h.Name("dir"),
+						h.Value(workDir),
+						h.Placeholder("Leave empty for current dir or use . or /absolute/path"),
+						h.AutoFocus(),
 					),
 					g.If(workDir != "" && len(branches) > 0,
 						h.Div(h.Class("mt-2"),
@@ -339,37 +342,64 @@ func CreateAgentModal(workDir string, branches []string) g.Node {
 					h.Value(workDir),
 				),
 
-				h.Div(h.Class("form-group"),
-					h.Label(h.For("branch"), g.Text("Branch Name (optional)")),
-					h.Input(
-						h.Type("text"),
-						h.ID("branch"),
-						h.Name("branch"),
-						h.List("branch-list"),
-						h.Placeholder("Leave empty for default behavior, or specify branch name"),
-						g.If(fieldsDisabled, h.Disabled()),
-					),
-					// Add datalist for branch suggestions
-					g.If(len(branches) > 0,
-						h.DataList(h.ID("branch-list"),
-							g.Group(g.Map(branches, func(branch string) g.Node {
-								return h.Option(h.Value(branch))
-							})),
+				// Only show branch and task fields when working directory is set
+				g.If(workDir != "",
+					g.Group([]g.Node{
+						h.Div(h.Class("form-group"),
+							h.Label(h.For("branch"), g.Text("Branch Name (optional)")),
+							h.Input(
+								h.Type("text"),
+								h.ID("branch"),
+								h.Name("branch"),
+								h.List("branch-list"),
+								h.Placeholder("Leave empty for default behavior, or specify branch name"),
+							),
+							// Add datalist for branch suggestions
+							g.If(len(branches) > 0,
+								h.DataList(h.ID("branch-list"),
+									g.Group(g.Map(branches, func(branch string) g.Node {
+										return h.Option(h.Value(branch))
+									})),
+								),
+							),
+							h.Small(h.Class("text-muted"), g.Text("If specified: uses existing branch or creates new feature branch")),
 						),
-					),
-					h.Small(h.Class("text-muted"), g.Text("If specified: uses existing branch or creates new feature branch")),
-				),
 
-				h.Div(h.Class("form-group"),
-					h.Label(h.For("task"), g.Text("Task Description")),
-					h.Textarea(
-						h.ID("task"),
-						h.Name("task"),
-						h.Rows("4"),
-						h.Required(),
-						h.Placeholder("Enter the task for the agent..."),
-						g.If(fieldsDisabled, h.Disabled()),
-					),
+						h.Div(h.Class("form-group"),
+							h.Label(h.For("task"), g.Text("Task Description")),
+							h.Textarea(
+								h.ID("task"),
+								h.Name("task"),
+								h.Rows("4"),
+								h.Required(),
+								h.Placeholder("Enter the task for the agent..."),
+							),
+						),
+
+						// MCP selection checkboxes
+						g.If(len(mcpStore.List()) > 0,
+							h.Div(h.Class("form-group"),
+								h.Label(g.Text("Model Context Protocol Servers")),
+								h.Div(h.Class("mcp-checkboxes"),
+									g.Group(g.Map(mcpStore.List(), func(mcp *MCP) g.Node {
+										return h.Div(h.Class("checkbox-wrapper"),
+											h.Input(
+												h.Type("checkbox"),
+												h.ID("mcp-"+mcp.ID),
+												h.Name("selected_mcps"),
+												h.Value(mcp.ID),
+												h.Class("mcp-checkbox"),
+											),
+											h.Label(
+												h.For("mcp-"+mcp.ID),
+												g.Text(mcp.Name),
+											),
+										)
+									})),
+								),
+							),
+						),
+					}),
 				),
 
 				h.Div(h.Class("form-actions"),
@@ -378,7 +408,7 @@ func CreateAgentModal(workDir string, branches []string) g.Node {
 						h.ID("create-agent-btn"),
 						h.Class("btn btn-primary"),
 						g.Text("Create Agent"),
-						g.If(fieldsDisabled, h.Disabled()),
+						g.If(workDir == "", h.Disabled()),
 					),
 					h.A(h.Href("/agents"), h.Class("btn btn-secondary"), g.Text("Cancel")),
 				),

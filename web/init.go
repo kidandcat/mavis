@@ -5,6 +5,7 @@ package web
 
 import (
 	"mavis/codeagent"
+	"path/filepath"
 
 	"github.com/go-telegram/bot"
 )
@@ -23,4 +24,8 @@ func InitializeGlobals(botInstance *bot.Bot, manager *codeagent.Manager, adminID
 	agentManager = manager
 	AdminUserID = adminID
 	ProjectDir = projectDir
+	
+	// Initialize MCP store
+	mcpConfigFile := filepath.Join(projectDir, "data", "mcps.json")
+	mcpStore = NewMCPStore(mcpConfigFile)
 }

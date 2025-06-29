@@ -43,6 +43,7 @@ type Agent struct {
 	mu                 sync.RWMutex
 	PlanFilename       string             // Custom plan filename (defaults to CURRENT_PLAN.md)
 	completionCallback CompletionCallback // Called when agent completes
+	PlanContent        string             // Content of CURRENT_PLAN.md (preserved on error)
 }
 
 // NewAgent creates a new agent instance
@@ -102,6 +103,14 @@ func (a *Agent) Start(ctx context.Context) error {
 
 	// Defer cleanup of the plan file
 	defer func() {
+		// Read plan content before removal if there was an error
+		if a.Status == StatusFailed || a.Status == StatusKilled {
+			if content, err := os.ReadFile(planFile); err == nil {
+				a.mu.Lock()
+				a.PlanContent = string(content)
+				a.mu.Unlock()
+			}
+		}
 		os.Remove(planFile)
 	}()
 
@@ -392,15 +401,16 @@ func (a *Agent) ToInfo() AgentInfo {
 	}
 
 	return AgentInfo{
-		ID:        a.ID,
-		Folder:    a.Folder,
-		Prompt:    a.Prompt,
-		Status:    a.Status,
-		Output:    a.Output,
-		Error:     a.Error,
-		StartTime: a.StartTime,
-		EndTime:   a.EndTime,
-		Duration:  duration,
+		ID:          a.ID,
+		Folder:      a.Folder,
+		Prompt:      a.Prompt,
+		Status:      a.Status,
+		Output:      a.Output,
+		Error:       a.Error,
+		StartTime:   a.StartTime,
+		EndTime:     a.EndTime,
+		Duration:    duration,
+		PlanContent: a.PlanContent,
 	}
 }
 
@@ -506,13 +516,14 @@ func (a *Agent) MarkAsFailedWithDetails(errorMsg string) {
 
 // AgentInfo is a snapshot of an agent's state
 type AgentInfo struct {
-	ID        string
-	Folder    string
-	Prompt    string
-	Status    AgentStatus
-	Output    string
-	Error     string
-	StartTime time.Time
-	EndTime   time.Time
-	Duration  time.Duration
+	ID          string
+	Folder      string
+	Prompt      string
+	Status      AgentStatus
+	Output      string
+	Error       string
+	StartTime   time.Time
+	EndTime     time.Time
+	Duration    time.Duration
+	PlanContent string // Content of CURRENT_PLAN.md (preserved on error)
 }

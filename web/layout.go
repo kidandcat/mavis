@@ -72,6 +72,7 @@ func DashboardLayoutWithRefresh(w http.ResponseWriter, r *http.Request, children
 						h.A(h.Href("/agents"), h.Class("navbar-item"), g.Text("Agents")),
 						h.A(h.Href("/files"), h.Class("navbar-item"), g.Text("Files")),
 						h.A(h.Href("/git"), h.Class("navbar-item"), g.Text("Git")),
+						h.A(h.Href("/mcps"), h.Class("navbar-item"), g.Text("MCPs")),
 						h.A(h.Href("/system"), h.Class("navbar-item"), g.Text("System")),
 					),
 				),
