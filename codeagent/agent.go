@@ -46,6 +46,8 @@ type Agent struct {
 	PlanFilename       string             // Custom plan filename (defaults to CURRENT_PLAN.md)
 	completionCallback CompletionCallback // Called when agent completes
 	PlanContent        string             // Content of CURRENT_PLAN.md (preserved on error)
+	cmdString          string             // The actual command string executed
+	hasMCPConfig       bool               // Whether MCP config was used
 }
 
 // NewAgent creates a new agent instance
@@ -154,6 +156,9 @@ func (a *Agent) Start(ctx context.Context) error {
 		log.Printf("[Agent] No .mcp.json found in %s", a.Folder)
 	}
 	
+	// Store MCP config state
+	a.hasMCPConfig = hasMCPConfig
+	
 	// Add MCP hint to prompt if MCP config exists
 	if hasMCPConfig {
 		escapedPrompt = "IMPORTANT: MCP servers have been configured for this session. The available tools from MCP servers should be accessible to you.\n\n" + escapedPrompt
@@ -167,6 +172,7 @@ func (a *Agent) Start(ctx context.Context) error {
 		cmdString = fmt.Sprintf("cd '%s' && claude --dangerously-skip-permissions -p '%s'", a.Folder, escapedPrompt)
 	}
 	log.Printf("[Agent] Executing command: %s", cmdString)
+	a.cmdString = cmdString
 	a.cmd = exec.CommandContext(ctx, "/bin/sh", "-c", cmdString)
 	
 	// Ensure the command inherits the current environment
@@ -203,7 +209,7 @@ func (a *Agent) Start(ctx context.Context) error {
 			errorBuilder.WriteString("\n2. You have permission to execute commands in the working directory")
 		}
 		
-		errorBuilder.WriteString(fmt.Sprintf("\n\nCommand: %s", cmdString))
+		errorBuilder.WriteString(fmt.Sprintf("\n\nCommand: %s", a.cmdString))
 		errorBuilder.WriteString(fmt.Sprintf("\nWorking Directory: %s", a.Folder))
 		errorBuilder.WriteString(fmt.Sprintf("\nFailure Time: %s", time.Now().Format("2006-01-02 15:04:05")))
 		
@@ -285,6 +291,12 @@ func (a *Agent) Start(ctx context.Context) error {
 				switch a.cmd.ProcessState.ExitCode() {
 				case 1:
 					errorBuilder.WriteString("\n💡 Exit code 1: General errors (syntax errors, incorrect usage)")
+					if a.hasMCPConfig {
+						errorBuilder.WriteString("\n⚠️ This may be caused by MCP configuration issues. Check that:")
+						errorBuilder.WriteString("\n   - The .mcp.json file is valid JSON")
+						errorBuilder.WriteString("\n   - All MCP server commands exist and are executable")
+						errorBuilder.WriteString("\n   - MCP server paths don't contain spaces or special characters")
+					}
 				case 2:
 					errorBuilder.WriteString("\n💡 Exit code 2: Misuse of shell builtins")
 				case 126:
@@ -320,9 +332,8 @@ func (a *Agent) Start(ctx context.Context) error {
 			}
 		}
 
-		if len(a.cmd.Args) > 0 {
-			errorBuilder.WriteString(fmt.Sprintf("\nCommand: %s", strings.Join(a.cmd.Args, " ")))
-		}
+		// Show the actual command that was executed
+		errorBuilder.WriteString(fmt.Sprintf("\nCommand: %s", a.cmdString))
 
 		errorBuilder.WriteString(fmt.Sprintf("\nWorking Directory: %s", a.Folder))
 
@@ -343,11 +354,20 @@ func (a *Agent) Start(ctx context.Context) error {
 			errorBuilder.WriteString(fmt.Sprintf("\nProcess Output:\n%s", outputToShow))
 			
 			// Check for MCP-related errors in output
-			if strings.Contains(output, "mcp") || strings.Contains(output, "MCP") {
+			if strings.Contains(output, "mcp") || strings.Contains(output, "MCP") || strings.Contains(output, ".mcp.json") {
 				errorBuilder.WriteString("\n\n⚠️ MCP-related error detected. Please check:")
 				errorBuilder.WriteString("\n1. MCP server commands are correct and executable")
 				errorBuilder.WriteString("\n2. MCP server dependencies are installed")
-				errorBuilder.WriteString("\n3. The .mcp.json file format is correct")
+				errorBuilder.WriteString("\n3. The .mcp.json file syntax is valid")
+				errorBuilder.WriteString("\n4. MCP server paths are accessible from the working directory")
+			}
+			
+			// Check for specific MCP startup errors
+			if strings.Contains(output, "Failed to start MCP server") || strings.Contains(output, "MCP server failed to start") {
+				errorBuilder.WriteString("\n\n⚠️ MCP server failed to start. Common causes:")
+				errorBuilder.WriteString("\n1. The MCP server command is not found or not executable")
+				errorBuilder.WriteString("\n2. Required dependencies for the MCP server are not installed")
+				errorBuilder.WriteString("\n3. The MCP server crashed during startup")
 			}
 		}
 
