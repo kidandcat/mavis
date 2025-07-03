@@ -316,6 +316,11 @@ func createCodeAgent(task, workDir string, selectedMCPs []string) (string, error
 	// Create MCP config file if MCPs are selected
 	var backupFile string
 	if len(selectedMCPs) > 0 {
+		// First verify MCP servers are available
+		if err := VerifyMCPServers(selectedMCPs, mcpStore, workDir); err != nil {
+			return "", fmt.Errorf("MCP server verification failed: %w", err)
+		}
+		
 		backupFile, err = CreateMCPConfigFile(workDir, selectedMCPs, mcpStore)
 		if err != nil {
 			return "", fmt.Errorf("failed to create MCP config: %w", err)
@@ -1137,6 +1142,18 @@ Task: %s`, branchName, task, branchName, branchName, task)
 		// Create MCP config file if MCPs are selected
 		var backupFile string
 		if len(selectedMCPs) > 0 {
+			// First verify MCP servers are available
+			if err := VerifyMCPServers(selectedMCPs, mcpStore, tempDir); err != nil {
+				os.RemoveAll(tempDir)
+				log.Printf("MCP server verification failed: %v", err)
+				// Send error notification if possible
+				if b != nil && AdminUserID != 0 {
+					message := fmt.Sprintf("❌ MCP server verification failed:\n%v", err)
+					core.SendMessage(context.Background(), b, AdminUserID, message)
+				}
+				return
+			}
+			
 			backupFile, err = CreateMCPConfigFile(tempDir, selectedMCPs, mcpStore)
 			if err != nil {
 				os.RemoveAll(tempDir)

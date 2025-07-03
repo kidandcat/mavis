@@ -139,21 +139,26 @@ func handleStartCommand(ctx context.Context, message *models.Message) {
 	go func() {
 		core.SendMessage(ctx, b, message.Chat.ID, "🔌 Attempting UPnP port mapping...")
 
-		err := upnpManager.MapPort(portInt, portInt, "TCP", fmt.Sprintf("Mavis Server - %s", buildCmdStr))
-		if err != nil {
-			log.Printf("UPnP mapping failed: %v", err)
-			core.SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("⚠️ UPnP port mapping failed: %v\n\nServer is still accessible on LAN.", err))
-		} else {
-			// Get public IP
-			publicIP, err := core.GetPublicIP(ctx)
+		if upnpManager != nil {
+			err := upnpManager.MapPort(portInt, portInt, "TCP", fmt.Sprintf("Mavis Server - %s", buildCmdStr))
 			if err != nil {
-				log.Printf("Failed to get public IP: %v", err)
-				core.SendMessage(ctx, b, message.Chat.ID, "⚠️ UPnP succeeded but couldn't get public IP. Server is accessible on LAN.")
+				log.Printf("UPnP mapping failed: %v", err)
+				core.SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("⚠️ UPnP port mapping failed: %v\n\nServer is still accessible on LAN.", err))
 			} else {
-				// Send success message with public URL
-				publicURL := fmt.Sprintf("http://%s:%s", publicIP, port)
-				core.SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("✅ UPnP mapping successful!\n\n🌍 *Public URL:* %s\n\n⚠️ *Important:* This URL is accessible from the internet!", publicURL))
+				// Get public IP
+				publicIP, err := core.GetPublicIP(ctx)
+				if err != nil {
+					log.Printf("Failed to get public IP: %v", err)
+					core.SendMessage(ctx, b, message.Chat.ID, "⚠️ UPnP succeeded but couldn't get public IP. Server is accessible on LAN.")
+				} else {
+					// Send success message with public URL
+					publicURL := fmt.Sprintf("http://%s:%s", publicIP, port)
+					core.SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("✅ UPnP mapping successful!\n\n🌍 *Public URL:* %s\n\n⚠️ *Important:* This URL is accessible from the internet!", publicURL))
+				}
 			}
+		} else {
+			log.Printf("UPnP not available")
+			core.SendMessage(ctx, b, message.Chat.ID, "ℹ️ UPnP not available. Server is accessible on LAN only.")
 		}
 	}()
 
@@ -179,7 +184,7 @@ func handleStartCommand(ctx context.Context, message *models.Message) {
 		lanServerMutex.Lock()
 		if lanServerProcess != nil {
 			// Clean up UPnP mapping
-			if lanServerPort != "" {
+			if lanServerPort != "" && upnpManager != nil {
 				portInt, _ := strconv.Atoi(lanServerPort)
 				upnpManager.UnmapPort(portInt)
 			}
@@ -248,7 +253,7 @@ func handleStopLANCommand(ctx context.Context, message *models.Message) {
 	}
 
 	// Clean up UPnP mapping
-	if lanServerPort != "" {
+	if lanServerPort != "" && upnpManager != nil {
 		portInt, _ := strconv.Atoi(lanServerPort)
 		upnpManager.UnmapPort(portInt)
 	}
@@ -357,21 +362,26 @@ func handleServeCommand(ctx context.Context, message *models.Message) {
 	go func() {
 		core.SendMessage(ctx, b, message.Chat.ID, "🔌 Attempting UPnP port mapping...")
 
-		err := upnpManager.MapPort(portInt, portInt, "TCP", "Mavis File Server")
-		if err != nil {
-			log.Printf("UPnP mapping failed: %v", err)
-			core.SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("⚠️ UPnP port mapping failed: %v\n\nServer is still accessible on LAN.", err))
-		} else {
-			// Get public IP
-			publicIP, err := core.GetPublicIP(ctx)
+		if upnpManager != nil {
+			err := upnpManager.MapPort(portInt, portInt, "TCP", "Mavis File Server")
 			if err != nil {
-				log.Printf("Failed to get public IP: %v", err)
-				core.SendMessage(ctx, b, message.Chat.ID, "⚠️ UPnP succeeded but couldn't get public IP. Server is accessible on LAN.")
+				log.Printf("UPnP mapping failed: %v", err)
+				core.SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("⚠️ UPnP port mapping failed: %v\n\nServer is still accessible on LAN.", err))
 			} else {
-				// Send success message with public URL
-				publicURL := fmt.Sprintf("http://%s:%s", publicIP, port)
-				core.SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("✅ UPnP mapping successful!\n\n🌍 *Public URL:* %s\n\n⚠️ *Important:* This URL is accessible from the internet!", publicURL))
+				// Get public IP
+				publicIP, err := core.GetPublicIP(ctx)
+				if err != nil {
+					log.Printf("Failed to get public IP: %v", err)
+					core.SendMessage(ctx, b, message.Chat.ID, "⚠️ UPnP succeeded but couldn't get public IP. Server is accessible on LAN.")
+				} else {
+					// Send success message with public URL
+					publicURL := fmt.Sprintf("http://%s:%s", publicIP, port)
+					core.SendMessage(ctx, b, message.Chat.ID, fmt.Sprintf("✅ UPnP mapping successful!\n\n🌍 *Public URL:* %s\n\n⚠️ *Important:* This URL is accessible from the internet!", publicURL))
+				}
 			}
+		} else {
+			log.Printf("UPnP not available")
+			core.SendMessage(ctx, b, message.Chat.ID, "ℹ️ UPnP not available. Server is accessible on LAN only.")
 		}
 	}()
 

@@ -154,7 +154,10 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 	case "/system":
 		content = SystemSection()
 	case "/mcps":
-		content = MCPsSection()
+		content = MCPsSection(r)
+	case "/souls":
+		handleSoulsList(w, r)
+		return
 	default:
 		content = AgentsSection(agentStatuses, modalParam, dirParam, branches)
 	}
@@ -601,14 +604,11 @@ func handleWebRestart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Send success response before restarting
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"status":  "restarting",
-		"message": "Mavis is restarting...",
-	})
+	// Set flash message and redirect to root
+	SetSuccessFlash(w, "Mavis is restarting...")
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 
-	// Schedule restart after a short delay to allow response to be sent
+	// Schedule restart after a short delay to allow redirect to be sent
 	go func() {
 		time.Sleep(1 * time.Second)
 		os.Exit(0)

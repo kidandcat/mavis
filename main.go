@@ -17,6 +17,7 @@ import (
 
 	"mavis/codeagent"
 	"mavis/core"
+	"mavis/soul"
 	"mavis/telegram"
 	"mavis/web"
 
@@ -29,6 +30,7 @@ var (
 	AdminUserID  int64
 	Bot          *bot.Bot // Exported for use by other packages
 	agentManager *codeagent.Manager
+	soulManager  *soul.ManagerSQLite
 	ProjectDir   string
 )
 
@@ -44,58 +46,87 @@ var (
 )
 
 func main() {
+	log.Println("[STARTUP] Starting Mavis application...")
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	log.Println("[STARTUP] Loading environment variables...")
 	// Load environment variables from .env file
 	if err := godotenv.Load(); err != nil {
 		log.Println("Warning: .env file not found, using system environment variables")
+	} else {
+		log.Println("[STARTUP] .env file loaded successfully")
 	}
 
+	log.Println("[STARTUP] Validating required environment variables...")
 	// Load environment variables
 	telegramBotToken := os.Getenv("TELEGRAM_BOT_TOKEN")
 	if telegramBotToken == "" {
-		log.Fatal("TELEGRAM_BOT_TOKEN environment variable is required")
+		log.Fatal("[STARTUP] TELEGRAM_BOT_TOKEN environment variable is required")
 	}
+	log.Println("[STARTUP] TELEGRAM_BOT_TOKEN found")
 
 	adminUserIDStr := os.Getenv("ADMIN_USER_ID")
 	if adminUserIDStr == "" {
-		log.Fatal("ADMIN_USER_ID environment variable is required")
+		log.Fatal("[STARTUP] ADMIN_USER_ID environment variable is required")
 	}
+	log.Println("[STARTUP] ADMIN_USER_ID found")
 
 	var err error
 	AdminUserID, err = strconv.ParseInt(adminUserIDStr, 10, 64)
 	if err != nil {
-		log.Fatal("ADMIN_USER_ID must be a valid integer:", err)
+		log.Fatal("[STARTUP] ADMIN_USER_ID must be a valid integer:", err)
 	}
+	log.Printf("[STARTUP] Admin User ID parsed: %d", AdminUserID)
 
+	log.Println("[STARTUP] Setting up working directories...")
 	// Store the project directory before changing working directory
 	ProjectDir, err = os.Getwd()
 	if err != nil {
-		log.Fatal("Failed to get current working directory:", err)
+		log.Fatal("[STARTUP] Failed to get current working directory:", err)
 	}
-	log.Printf("Project directory: %s", ProjectDir)
+	log.Printf("[STARTUP] Project directory: %s", ProjectDir)
 
 	// Change working directory to user home
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		log.Fatal("Failed to get user home directory:", err)
+		log.Fatal("[STARTUP] Failed to get user home directory:", err)
 	}
-	if err := os.Chdir(homeDir); err != nil {
-		log.Fatal("Failed to change to home directory:", err)
-	}
-	log.Printf("Changed working directory to: %s", homeDir)
+	log.Printf("[STARTUP] User home directory: %s", homeDir)
 
+	if err := os.Chdir(homeDir); err != nil {
+		log.Fatal("[STARTUP] Failed to change to home directory:", err)
+	}
+	log.Printf("[STARTUP] Changed working directory to: %s", homeDir)
+
+	log.Println("[STARTUP] Creating data directory...")
 	// Create data directory if it doesn't exist
 	if err := os.MkdirAll("data", 0755); err != nil {
-		log.Fatal("Failed to create data directory:", err)
+		log.Fatal("[STARTUP] Failed to create data directory:", err)
 	}
+	log.Println("[STARTUP] Data directory created/verified")
 
 	// User store and authorization removed - single user mode
 
+	log.Println("[STARTUP] Initializing code agent manager...")
 	// Initialize code agent manager
 	agentManager = codeagent.NewManager()
+	log.Println("[STARTUP] Code agent manager initialized")
 
+	log.Println("[STARTUP] Initializing soul manager...")
+	// Initialize soul manager
+	configDir := filepath.Join(homeDir, ".config", "mavis")
+	log.Printf("[STARTUP] Soul manager config directory: %s", configDir)
+
+	log.Println("[STARTUP] Creating soul manager...")
+	soulManager, err = soul.NewManagerSQLite(configDir)
+	if err != nil {
+		log.Fatal("[STARTUP] Failed to initialize soul manager:", err)
+	}
+	log.Println("[STARTUP] Soul manager initialized")
+
+	log.Println("[STARTUP] Setting up agent callbacks...")
 	// Set callback for when queued agents start
 	agentManager.SetAgentStartCallback(func(agentID, folder, prompt, queueID string) {
 		log.Printf("[StartCallback] Called for agent %s, queueID: %s", agentID, queueID)
@@ -118,37 +149,64 @@ func main() {
 			log.Printf("WARNING: This agent will NOT receive completion notifications!")
 		}
 	})
+	log.Println("[STARTUP] Agent callbacks configured")
 
+	log.Println("[STARTUP] Creating Telegram bot...")
 	// Create bot with custom error handler
 	Bot, err = bot.New(telegramBotToken,
 		bot.WithDefaultHandler(handler),
 		bot.WithErrorsHandler(handleBotError))
 	if err != nil {
-		panic("Error creating bot (telegram token: " + telegramBotToken + "): " + err.Error())
+		log.Fatal("[STARTUP] Error creating bot (telegram token: " + telegramBotToken + "): " + err.Error())
 	}
+	log.Println("[STARTUP] Telegram bot created successfully")
+
+	log.Println("[STARTUP] Registering bot handlers...")
 	Bot.RegisterHandler(bot.HandlerTypeMessageText, "/start", bot.MatchTypeExact, helloHandler)
 	// Code agent commands are handled in handleMessage function
+	log.Println("[STARTUP] Bot handlers registered")
 
+	log.Println("[STARTUP] Initializing package globals...")
 	// Initialize global variables in packages
 	telegram.InitializeGlobals(Bot, agentManager, AdminUserID)
-	web.InitializeGlobals(Bot, agentManager, AdminUserID, ProjectDir)
-	core.InitializeGlobals(AdminUserID)
+	log.Println("[STARTUP] Telegram globals initialized")
 
+	web.InitializeGlobals(Bot, agentManager, soulManager, AdminUserID, ProjectDir)
+	log.Println("[STARTUP] Web globals initialized")
+
+	core.InitializeGlobals(AdminUserID)
+	log.Println("[STARTUP] Core globals initialized")
+
+	// Initialize UPnP (optional feature)
+	log.Println("[STARTUP] Initializing UPnP support...")
+	telegram.InitializeUPnP()
+	log.Println("[STARTUP] UPnP initialization complete")
+
+	log.Println("[STARTUP] Starting background processes...")
 	go telegram.MonitorAgentsProcess(ctx, Bot)
+	log.Println("[STARTUP] Agent monitor process started")
+
 	go telegram.RecoveryCheck(ctx, Bot)
+	log.Println("[STARTUP] Recovery check process started")
+
 	go cleanupOldTempFiles(ctx)
+	log.Println("[STARTUP] Cleanup process started")
 
 	// Start web server if enabled
 	webPort := os.Getenv("WEB_PORT")
 	if webPort != "" {
+		log.Printf("[STARTUP] Web server enabled on port %s", webPort)
 		go func() {
-			log.Printf("Starting web server on port %s", webPort)
+			log.Printf("[WEB] Starting web server on port %s", webPort)
 			if err := web.StartWebServer(webPort); err != nil && err != http.ErrServerClosed {
-				log.Printf("Web server error: %v", err)
+				log.Printf("[WEB] [ERROR] Web server error: %v", err)
 			}
 		}()
+	} else {
+		log.Println("[STARTUP] Web server disabled (WEB_PORT not set)")
 	}
 
+	log.Println("[STARTUP] Sending startup notification to admin...")
 	// Send startup notification to admin
 	startupMsg := "🚀 Mavis ready"
 	if webPort != "" {
@@ -159,10 +217,12 @@ func main() {
 		Text:   startupMsg,
 	})
 	if err != nil {
-		log.Printf("Failed to send startup notification: %v", err)
+		log.Printf("[STARTUP] [WARNING] Failed to send startup notification: %v", err)
+	} else {
+		log.Println("[STARTUP] Startup notification sent successfully")
 	}
 
-	log.Println("Ready")
+	log.Println("[STARTUP] All initialization complete - starting bot...")
 
 	// Start bot with error handling
 	if err := startBotWithErrorHandling(ctx); err != nil {
@@ -175,11 +235,14 @@ func handleBotError(err error) {
 		return
 	}
 
+	log.Printf("[TGBOT] [ERROR] Bot error occurred: %v", err)
+
 	errStr := err.Error()
 	// Check if it's the specific conflict error
 	if contains(errStr, "error get updates") && contains(errStr, "conflict") &&
 		contains(errStr, "Conflict: terminated by other getUpdates request") {
-		log.Printf("[TGBOT] [ERROR] %s", errStr)
+		log.Printf("[TGBOT] [CONFLICT] Detected bot instance conflict!")
+		log.Printf("[TGBOT] [CONFLICT] Full error: %s", errStr)
 		// Send danger message
 		ctx := context.Background()
 		sendDangerMessage(ctx, "⚠️ DANGER: Another Telegram bot instance is running!\n\nThe bot detected a conflict - another instance is already polling for updates. Only one bot instance can run at a time.\n\nPlease stop the other instance and restart this bot.")
@@ -187,35 +250,45 @@ func handleBotError(err error) {
 		return
 	}
 
-	// Log other errors
-	log.Printf("[TGBOT] [ERROR] Bot error: %v", err)
+	// Log other errors with more detail
+	log.Printf("[TGBOT] [ERROR] Unhandled bot error: %v", err)
+	log.Printf("[TGBOT] [ERROR] Error type: %T", err)
 }
 
 func startBotWithErrorHandling(ctx context.Context) error {
+	log.Println("[TGBOT] Initializing bot startup with error handling...")
+
 	// Use a channel to capture panic from bot.Start
 	errChan := make(chan error, 1)
 
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
+				log.Printf("[TGBOT] [PANIC] Bot panicked during startup: %v", r)
 				errChan <- fmt.Errorf("bot panicked: %v", r)
 			}
 		}()
 
+		log.Println("[TGBOT] Starting bot polling for updates...")
 		// Start the bot
 		Bot.Start(ctx)
+		log.Println("[TGBOT] Bot polling stopped normally")
 		errChan <- nil
 	}()
 
+	log.Println("[TGBOT] Monitoring for bot errors and context cancellation...")
 	// Monitor for errors
 	for {
 		select {
 		case err := <-errChan:
 			if err != nil {
+				log.Printf("[TGBOT] [ERROR] Bot error received: %v", err)
 				return err
 			}
+			log.Println("[TGBOT] Bot startup completed successfully")
 			return nil
 		case <-ctx.Done():
+			log.Printf("[TGBOT] Context cancelled: %v", ctx.Err())
 			return ctx.Err()
 		}
 	}
@@ -276,7 +349,6 @@ func helloHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		Text:   fmt.Sprintf("Hello %s! I'm Mavis, a code agent manager. Use /help to see available commands.", update.Message.Chat.FirstName),
 	})
 }
-
 
 func cleanupOldTempFiles(ctx context.Context) {
 	ticker := time.NewTicker(1 * time.Hour) // Run cleanup every hour

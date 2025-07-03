@@ -85,16 +85,24 @@ func UnregisterAgent(agentID string) {
 	// No-op in single-user mode
 }
 
-// Stub for UPnP manager - TODO: Move to proper package
-type upnpManagerStub struct{}
+// Global UPnP manager instance
+var upnpManager *UPnPManager
 
-func (u *upnpManagerStub) MapPort(internal, external int, protocol, description string) error {
-	return fmt.Errorf("UPnP not implemented")
+// InitializeUPnP initializes the UPnP manager
+func InitializeUPnP() {
+	manager, err := NewUPnPManager()
+	if err != nil {
+		// UPnP is optional, so just log the error
+		fmt.Printf("UPnP initialization failed (this is optional): %v\n", err)
+		return
+	}
+	
+	upnpManager = manager
+	upnpManager.StartRefreshTimer()
+	
+	if upnpManager.GetExternalIP() != "" {
+		fmt.Printf("UPnP enabled - External IP: %s, Internal IP: %s\n", 
+			upnpManager.GetExternalIP(), upnpManager.GetInternalIP())
+	}
 }
-
-func (u *upnpManagerStub) UnmapPort(port int) {
-	// No-op
-}
-
-var upnpManager = &upnpManagerStub{}
 

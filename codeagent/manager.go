@@ -469,6 +469,18 @@ func (m *Manager) GetRunningCount() int {
 	return count
 }
 
+// GetRunningAgentForFolder returns the agent ID running in the specified folder, or empty string if none
+func (m *Manager) GetRunningAgentForFolder(folder string) string {
+	m.queueMu.Lock()
+	defer m.queueMu.Unlock()
+
+	agentID, exists := m.runningPerFolder[folder]
+	if !exists {
+		return ""
+	}
+	return agentID
+}
+
 // GetTotalCount returns the total number of agents
 func (m *Manager) GetTotalCount() int {
 	m.mu.RLock()

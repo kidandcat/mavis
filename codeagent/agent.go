@@ -5,10 +5,12 @@ package codeagent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -126,8 +128,43 @@ func (a *Agent) Start(ctx context.Context) error {
 	// Use a shell to properly execute the claude script
 	// Escape single quotes in the prompt to prevent shell injection
 	escapedPrompt := strings.ReplaceAll(enhancedPrompt, "'", "'\"'\"'")
+	
+	// Check if .mcp.json exists in the working directory
+	mcpConfigPath := filepath.Join(a.Folder, ".mcp.json")
+	hasMCPConfig := false
+	if _, err := os.Stat(mcpConfigPath); err == nil {
+		hasMCPConfig = true
+		log.Printf("[Agent] Found .mcp.json in %s", a.Folder)
+		// Read and log the content for debugging
+		if content, err := os.ReadFile(mcpConfigPath); err == nil {
+			log.Printf("[Agent] .mcp.json content:\n%s", string(content))
+			// Parse to check which servers are configured
+			var config map[string]interface{}
+			if err := json.Unmarshal(content, &config); err == nil {
+				if servers, ok := config["mcpServers"].(map[string]interface{}); ok {
+					serverNames := make([]string, 0, len(servers))
+					for name := range servers {
+						serverNames = append(serverNames, name)
+					}
+					log.Printf("[Agent] MCP servers configured: %v", serverNames)
+				}
+			}
+		}
+	} else {
+		log.Printf("[Agent] No .mcp.json found in %s", a.Folder)
+	}
+	
+	// Add MCP hint to prompt if MCP config exists
+	if hasMCPConfig {
+		escapedPrompt = "IMPORTANT: MCP servers have been configured for this session. The available tools from MCP servers should be accessible to you.\n\n" + escapedPrompt
+	}
+	
 	cmdString := fmt.Sprintf("cd '%s' && claude --dangerously-skip-permissions -p '%s'", a.Folder, escapedPrompt)
+	log.Printf("[Agent] Executing command: %s", cmdString)
 	a.cmd = exec.CommandContext(ctx, "/bin/sh", "-c", cmdString)
+	
+	// Ensure the command inherits the current environment
+	a.cmd.Env = os.Environ()
 
 	// Set up pipes for streaming output
 	stdout, err := a.cmd.StdoutPipe()
@@ -298,6 +335,14 @@ func (a *Agent) Start(ctx context.Context) error {
 				outputToShow = "...(truncated)...\n" + outputToShow[len(outputToShow)-2000:]
 			}
 			errorBuilder.WriteString(fmt.Sprintf("\nProcess Output:\n%s", outputToShow))
+			
+			// Check for MCP-related errors in output
+			if strings.Contains(output, "mcp") || strings.Contains(output, "MCP") {
+				errorBuilder.WriteString("\n\n⚠️ MCP-related error detected. Please check:")
+				errorBuilder.WriteString("\n1. MCP server commands are correct and executable")
+				errorBuilder.WriteString("\n2. MCP server dependencies are installed")
+				errorBuilder.WriteString("\n3. The .mcp.json file format is correct")
+			}
 		}
 
 		errorBuilder.WriteString(fmt.Sprintf("\nFailure Time: %s", time.Now().Format("2006-01-02 15:04:05")))

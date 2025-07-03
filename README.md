@@ -1,4 +1,4 @@
-# Mavis - AI-Powered Development Assistant for Telegram & Web
+# Mavis - Command a Fleet of Claude Code Agents via Telegram & Web
 
 Mavis is a powerful bot that brings Claude AI directly to your development workflow. Access it through Telegram commands or a modern web interface. Launch autonomous AI agents to write code, manage git operations, review pull requests, and serve local projects on your LAN network.
 

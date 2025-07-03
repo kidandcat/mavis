@@ -144,6 +144,16 @@ a:hover {
     background: var(--dark-bg);
 }
 
+.container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: var(--space-md) var(--space-sm);
+}
+
+.container > h2 {
+    margin-bottom: var(--space-lg);
+}
+
 .section {
     width: 100%;
     margin: 0 auto;
@@ -161,7 +171,7 @@ a:hover {
 }
 
 /* Buttons */
-.btn {
+.btn, .button, button[type="submit"], button[type="button"] {
     padding: var(--space-xs) var(--space-sm);
     border: 1px solid currentColor;
     background: transparent;
@@ -176,54 +186,54 @@ a:hover {
     display: inline-block;
 }
 
-.btn:hover {
+.btn:hover, .button:hover, button[type="submit"]:hover, button[type="button"]:hover {
     transform: translateY(-2px);
 }
 
-.btn-primary {
+.btn-primary, .button.primary {
     color: var(--primary-color);
     border-color: var(--primary-color);
 }
 
-.btn-primary:hover {
+.btn-primary:hover, .button.primary:hover {
     background: var(--primary-color);
     color: var(--dark-bg);
     box-shadow: var(--glow-cyan);
 }
 
-.btn-success {
+.btn-success, .button.success {
     color: var(--success-color);
     border-color: var(--success-color);
 }
 
-.btn-success:hover {
+.btn-success:hover, .button.success:hover {
     background: var(--success-color);
     color: var(--dark-bg);
     box-shadow: var(--glow-green);
 }
 
-.btn-danger {
+.btn-danger, .button.danger {
     color: var(--danger-color);
     border-color: var(--danger-color);
 }
 
-.btn-danger:hover {
+.btn-danger:hover, .button.danger:hover {
     background: var(--danger-color);
     color: var(--dark-bg);
     box-shadow: var(--glow-red);
 }
 
-.btn-secondary {
+.btn-secondary, .button.secondary {
     color: var(--text-secondary);
     border-color: var(--text-secondary);
 }
 
-.btn-secondary:hover {
+.btn-secondary:hover, .button.secondary:hover {
     background: var(--text-secondary);
     color: var(--dark-bg);
 }
 
-.btn-sm {
+.btn-sm, .button.small {
     padding: 0.25rem 0.75rem;
     font-size: 0.8rem;
 }
@@ -562,6 +572,11 @@ small, .text-muted {
     align-items: center;
 }
 
+/* When modal is shown, make it a flex container to center content */
+.modal[style*="display: block"] {
+    display: flex !important;
+}
+
 .modal-content {
     background: var(--panel-bg);
     border: 2px solid var(--primary-color);
@@ -669,6 +684,11 @@ tr:hover {
         opacity: 0;
         transform: translateY(-20px);
     }
+}
+
+/* Ensure notification stays hidden after animation */
+.notification.sliding-out {
+    animation: slideOut 0.3s ease-in forwards;
 }
 
 .notification.success {
@@ -788,6 +808,10 @@ code {
     .kanban-container {
         grid-template-columns: repeat(2, 1fr);
     }
+    
+    .soul-cards {
+        grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+    }
 }
 
 @media (max-width: 768px) {
@@ -803,6 +827,25 @@ code {
     
     .kanban-container {
         grid-template-columns: 1fr;
+    }
+    
+    .soul-cards {
+        grid-template-columns: 1fr;
+    }
+    
+    .soul-actions {
+        flex-direction: column;
+        gap: var(--space-xs);
+    }
+    
+    .soul-actions .button {
+        width: 100%;
+    }
+    
+    #createSoulModal .modal-content {
+        width: 95%;
+        max-height: 95vh;
+        margin: var(--space-sm);
     }
     
     h1 {
@@ -939,4 +982,462 @@ code {
     padding: 2px 6px;
     border-radius: 3px;
     color: var(--info-color);
+}
+
+/* Soul UI Styles */
+.soul-actions {
+    margin-bottom: var(--space-md);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* Create Soul button specific styling */
+.soul-actions .button.primary {
+    background: rgba(0, 255, 255, 0.1);
+    border: 2px solid var(--primary-color);
+    color: var(--primary-color);
+    padding: var(--space-sm) var(--space-md);
+    font-weight: 600;
+    text-shadow: 0 0 5px rgba(0, 255, 255, 0.5);
+}
+
+.soul-actions .button.primary:hover {
+    background: var(--primary-color);
+    color: var(--dark-bg);
+    box-shadow: var(--glow-cyan);
+    transform: translateY(-2px) scale(1.05);
+}
+
+/* Soul-specific modal styles */
+#createSoulModal .modal-content {
+    max-width: 600px;
+    width: 90%;
+}
+
+#createSoulModal .modal-header {
+    border-bottom: 2px solid var(--primary-color);
+    padding-bottom: var(--space-sm);
+}
+
+#createSoulModal .modal-header h3 {
+    color: var(--primary-color);
+    text-shadow: var(--glow-cyan);
+}
+
+#createSoulModal .close {
+    font-size: 2rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    line-height: 1;
+    transition: color var(--transition-speed);
+    background: none;
+    border: none;
+    padding: 0;
+}
+
+#createSoulModal .close:hover {
+    color: var(--danger-color);
+    text-shadow: var(--glow-red);
+}
+
+.souls-list {
+    margin-top: var(--space-lg);
+}
+
+.souls-list > p {
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 1.1rem;
+    padding: var(--space-xl) var(--space-lg);
+    background: var(--panel-bg);
+    border: 2px dashed var(--panel-border);
+    border-radius: 8px;
+}
+
+.souls-columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-lg);
+}
+
+@media (max-width: 1024px) {
+    .souls-columns {
+        grid-template-columns: 1fr;
+    }
+}
+
+.soul-column {
+    background: var(--panel-bg);
+    border: 2px solid var(--panel-border);
+    border-radius: 8px;
+    padding: var(--space-md);
+    min-height: 400px;
+}
+
+.soul-column h3 {
+    margin: 0 0 var(--space-md) 0;
+    color: var(--primary-color);
+    text-align: center;
+    padding-bottom: var(--space-sm);
+    border-bottom: 1px solid var(--panel-border);
+}
+
+.working-column {
+    border-color: var(--success-color);
+    background: linear-gradient(135deg, var(--panel-bg) 0%, rgba(0, 255, 136, 0.05) 100%);
+}
+
+.standby-column {
+    border-color: var(--info-color);
+    background: linear-gradient(135deg, var(--panel-bg) 0%, rgba(0, 170, 255, 0.05) 100%);
+}
+
+.soul-column .empty-column {
+    text-align: center;
+    color: var(--text-secondary);
+    padding: var(--space-xl);
+    font-style: italic;
+}
+
+.soul-cards {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.soul-card {
+    background: var(--panel-bg);
+    border: 2px solid var(--panel-border);
+    border-radius: 8px;
+    padding: var(--space-md);
+    transition: all var(--transition-speed);
+    position: relative;
+    overflow: hidden;
+}
+
+.soul-card::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(0, 255, 255, 0.1), transparent);
+    transition: left 0.6s ease;
+}
+
+.soul-card:hover {
+    border-color: var(--primary-color);
+    box-shadow: var(--glow-cyan);
+    transform: translateY(-4px);
+}
+
+.soul-card:hover::before {
+    left: 100%;
+}
+
+.soul-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-sm);
+}
+
+.soul-header h3 {
+    margin: 0;
+    color: var(--primary-color);
+}
+
+.soul-header .status {
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+}
+
+.soul-header .status.working {
+    background: rgba(0, 255, 136, 0.2);
+    color: var(--success-color);
+    animation: pulse 2s ease-in-out infinite;
+}
+
+.soul-header .status.standby {
+    background: rgba(0, 170, 255, 0.2);
+    color: var(--info-color);
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.7;
+    }
+}
+
+.soul-info {
+    margin-bottom: var(--space-sm);
+}
+
+.soul-info p {
+    margin: 4px 0;
+    color: var(--text-secondary);
+}
+
+.soul-objectives {
+    margin: var(--space-sm) 0;
+}
+
+.soul-objectives h4 {
+    color: var(--info-color);
+    font-size: 1rem;
+    margin-bottom: var(--space-xs);
+}
+
+.soul-objectives ul {
+    list-style: none;
+    padding-left: 0;
+}
+
+.soul-objectives li {
+    padding: 4px 0;
+    padding-left: 20px;
+    position: relative;
+}
+
+.soul-objectives li:before {
+    content: "▸";
+    position: absolute;
+    left: 0;
+    color: var(--primary-color);
+}
+
+.soul-feedback {
+    margin: var(--space-sm) 0;
+}
+
+.soul-feedback h4 {
+    color: var(--info-color);
+    font-size: 1rem;
+    margin-bottom: var(--space-xs);
+}
+
+.feedback-stats {
+    display: flex;
+    gap: var(--space-sm);
+    flex-wrap: wrap;
+}
+
+.feedback-stats .stat {
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 0.9rem;
+}
+
+.feedback-stats .stat.features {
+    background: rgba(0, 255, 136, 0.2);
+    color: var(--success-color);
+}
+
+.feedback-stats .stat.bugs {
+    background: rgba(255, 0, 85, 0.2);
+    color: var(--danger-color);
+}
+
+.feedback-stats .stat.tests {
+    background: rgba(0, 170, 255, 0.2);
+    color: var(--info-color);
+}
+
+.soul-actions {
+    display: flex;
+    gap: var(--space-xs);
+    margin-top: var(--space-sm);
+    flex-wrap: wrap;
+}
+
+/* Soul Detail Page Styles */
+.soul-detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-lg);
+}
+
+.soul-detail-content {
+    display: grid;
+    gap: var(--space-lg);
+}
+
+.info-section dl {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--space-xs) var(--space-sm);
+}
+
+.info-section dt {
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+.info-section dd {
+    color: var(--text-primary);
+}
+
+.objectives-requirements {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-md);
+}
+
+@media (max-width: 768px) {
+    .objectives-requirements {
+        grid-template-columns: 1fr;
+    }
+}
+
+.objectives-section,
+.requirements-section {
+    background: var(--panel-bg);
+    padding: var(--space-md);
+    border-radius: 8px;
+    border: 1px solid var(--panel-border);
+}
+
+.objectives-section h3,
+.requirements-section h3 {
+    margin-bottom: var(--space-sm);
+}
+
+.iterations-section,
+.feedback-section {
+    background: var(--panel-bg);
+    padding: var(--space-md);
+    border-radius: 8px;
+    border: 1px solid var(--panel-border);
+}
+
+.iterations-table {
+    width: 100%;
+    margin-top: var(--space-sm);
+}
+
+.features-subsection,
+.bugs-subsection,
+.tests-subsection {
+    margin-top: var(--space-md);
+}
+
+.features-list,
+.bugs-list,
+.tests-list {
+    list-style: none;
+    padding: 0;
+}
+
+.features-list li,
+.bugs-list li,
+.tests-list li {
+    padding: var(--space-xs) 0;
+    border-bottom: 1px solid var(--panel-border);
+}
+
+.severity {
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    margin-right: var(--space-xs);
+}
+
+.severity.high {
+    background: rgba(255, 0, 85, 0.2);
+    color: var(--danger-color);
+}
+
+.severity.medium {
+    background: rgba(255, 170, 0, 0.2);
+    color: var(--warning-color);
+}
+
+.severity.low {
+    background: rgba(0, 170, 255, 0.2);
+    color: var(--info-color);
+}
+
+.bug-status {
+    color: var(--text-secondary);
+}
+
+.test-pass {
+    color: var(--success-color);
+}
+
+.test-fail {
+    color: var(--danger-color);
+}
+
+.test-message {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.timestamp {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
+/* Souls Pause/Resume Toggle */
+.souls-pause-toggle {
+    display: inline-flex;
+    align-items: center;
+    margin-left: var(--space-lg);
+}
+
+.souls-pause-toggle form {
+    margin: 0;
+}
+
+.toggle-button {
+    background: var(--panel-bg);
+    border: 2px solid var(--panel-border);
+    color: var(--text-primary);
+    padding: var(--space-xs) var(--space-sm);
+    font-family: 'Orbitron', monospace;
+    font-size: 0.9rem;
+    font-weight: 500;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all var(--transition-speed);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+}
+
+.toggle-button.active {
+    border-color: var(--success-color);
+    color: var(--success-color);
+    box-shadow: var(--glow-green);
+}
+
+.toggle-button.paused {
+    border-color: var(--warning-color);
+    color: var(--warning-color);
+    box-shadow: var(--glow-amber);
+}
+
+.toggle-button:hover {
+    transform: translateY(-2px);
+}
+
+.toggle-button.active:hover {
+    background: rgba(0, 255, 136, 0.1);
+    box-shadow: 0 0 30px rgba(0, 255, 136, 0.8);
+}
+
+.toggle-button.paused:hover {
+    background: rgba(255, 170, 0, 0.1);
+    box-shadow: 0 0 30px rgba(255, 170, 0, 0.8);
 }
