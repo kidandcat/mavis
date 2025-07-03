@@ -112,11 +112,6 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 	// Render the appropriate section based on path
 	var content g.Node
 
-	// Check if this is a souls route
-	if strings.HasPrefix(path, "/souls") {
-		handleSoulRoutes(w, r)
-		return
-	}
 
 	switch path {
 	case "/", "/agents":
@@ -144,9 +139,6 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 		content = FilesSection(dir, files)
 	case "/git":
 		folderPath := r.URL.Query().Get("folder")
-		if folderPath == "" {
-			folderPath = "."
-		}
 		// Get git diff if folder is specified
 		diff := ""
 		showDiff := false

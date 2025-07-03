@@ -8,9 +8,6 @@ import (
 )
 
 func GitSection(folderPath string, diff string, showDiff bool) g.Node {
-	if folderPath == "" {
-		folderPath = "."
-	}
 
 	return h.Div(h.ID("git-section"), h.Class("section"),
 		h.Div(h.Class("section-header"),

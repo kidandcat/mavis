@@ -6,7 +6,6 @@ package web
 import (
 	"encoding/json"
 	"log"
-	"mavis/soul"
 	"net/http"
 	"strings"
 	"time"
@@ -36,7 +35,6 @@ func StartWebServer(port string) error {
 	// Main routes - serve full pages
 	mux.HandleFunc("/", handleDashboard)
 	mux.HandleFunc("/agents", handleDashboard)
-	mux.HandleFunc("/souls", handleDashboard)
 	mux.HandleFunc("/files", handleDashboard)
 	mux.HandleFunc("/git", handleDashboard)
 	mux.HandleFunc("/system", handleDashboard)
@@ -59,13 +57,6 @@ func StartWebServer(port string) error {
 	mux.HandleFunc("/api/agents", handleWebAgents)
 	mux.HandleFunc("/api/mcps", handleMCPRoutes)
 
-	// Soul routes
-	mux.HandleFunc("/souls/create", handleCreateSoul)
-	mux.HandleFunc("/souls/", handleSoulRoutes)
-	mux.HandleFunc("/api/souls/launch-agent", handleLaunchAgentForSoul)
-	mux.HandleFunc("/api/souls/pause-state", handleSoulsPauseState)
-	mux.HandleFunc("/api/souls/toggle-pause", handleSoulsTogglePause)
-
 	// SSE removed - using meta refresh instead
 	// mux.HandleFunc("/events", handleSSE)
 
@@ -83,9 +74,6 @@ func StartWebServer(port string) error {
 	// SSE removed - using meta refresh instead
 	// go sseEventBroadcaster()
 	// go agentStatusBroadcaster()
-
-	// Start periodic check for orphaned souls
-	go startSoulMonitor()
 
 	log.Printf("Starting web server on port %s", port)
 	return webServer.ListenAndServe()
@@ -396,38 +384,3 @@ func handleMCPRoutes(w http.ResponseWriter, r *http.Request) {
 // }
 
 // Authentication functions removed - running on local network only
-
-// startSoulMonitor periodically checks for souls in working status without agents
-func startSoulMonitor() {
-	ticker := time.NewTicker(30 * time.Second) // Check every 30 seconds
-	defer ticker.Stop()
-
-	for range ticker.C {
-		// Skip if souls are paused
-		if soulManager.IsPaused() {
-			continue
-		}
-
-		// Get all souls
-		souls, err := soulManager.ListSouls()
-		if err != nil {
-			log.Printf("Soul monitor: Failed to list souls: %v", err)
-			continue
-		}
-
-		// Check each working soul
-		for _, s := range souls {
-			if s.Status == soul.SoulStatusWorking {
-				// Check if an agent is running for this soul's project
-				if running, _ := agentManager.IsAgentRunningInFolder(s.ProjectPath); !running {
-					log.Printf("Soul monitor: Soul %s (%s) is working but has no agent, setting to standby", s.ID, s.Name)
-					// Set soul back to standby
-					s.Status = soul.SoulStatusStandby
-					if err := soulManager.UpdateSoul(s); err != nil {
-						log.Printf("Soul monitor: Failed to update soul status: %v", err)
-					}
-				}
-			}
-		}
-	}
-}

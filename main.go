@@ -19,7 +19,6 @@ import (
 
 	"mavis/codeagent"
 	"mavis/core"
-	"mavis/soul"
 	"mavis/telegram"
 	"mavis/web"
 
@@ -32,7 +31,6 @@ var (
 	AdminUserID  int64
 	Bot          *bot.Bot // Exported for use by other packages
 	agentManager *codeagent.Manager
-	soulManager  *soul.ManagerSQLite
 	ProjectDir   string
 )
 
@@ -116,18 +114,6 @@ func main() {
 	agentManager = codeagent.NewManager()
 	log.Println("[STARTUP] Code agent manager initialized")
 
-	log.Println("[STARTUP] Initializing soul manager...")
-	// Initialize soul manager
-	configDir := filepath.Join(homeDir, ".config", "mavis")
-	log.Printf("[STARTUP] Soul manager config directory: %s", configDir)
-
-	log.Println("[STARTUP] Creating soul manager...")
-	soulManager, err = soul.NewManagerSQLite(configDir)
-	if err != nil {
-		log.Fatal("[STARTUP] Failed to initialize soul manager:", err)
-	}
-	log.Println("[STARTUP] Soul manager initialized")
-
 	log.Println("[STARTUP] Setting up agent callbacks...")
 	// Set callback for when queued agents start
 	agentManager.SetAgentStartCallback(func(agentID, folder, prompt, queueID string) {
@@ -173,7 +159,7 @@ func main() {
 	telegram.InitializeGlobals(Bot, agentManager, AdminUserID)
 	log.Println("[STARTUP] Telegram globals initialized")
 
-	web.InitializeGlobals(Bot, agentManager, soulManager, AdminUserID, ProjectDir)
+	web.InitializeGlobals(Bot, agentManager, AdminUserID, ProjectDir)
 	log.Println("[STARTUP] Web globals initialized")
 
 	core.InitializeGlobals(AdminUserID)

@@ -2,7 +2,6 @@ package web
 
 import (
 	"fmt"
-	"mavis/soul"
 	"net/http"
 
 	g "maragu.dev/gomponents"
@@ -59,16 +58,6 @@ func DashboardLayoutWithRefresh(w http.ResponseWriter, r *http.Request, children
 	// Get flash message
 	flash := GetFlash(w, r)
 
-	// Count standby souls
-	standbyCount := 0
-	if souls, err := soulManager.ListSouls(); err == nil {
-		for _, s := range souls {
-			if s.Status == soul.SoulStatusStandby {
-				standbyCount++
-			}
-		}
-	}
-
 	return c.HTML5(
 		c.HTML5Props{
 			Title:    "Mavis Dashboard",
@@ -78,21 +67,9 @@ func DashboardLayoutWithRefresh(w http.ResponseWriter, r *http.Request, children
 				h.Div(h.Class("navbar"),
 					h.Div(h.Class("navbar-brand"),
 						h.H1(g.Text("Mavis")),
-						// Souls pause/resume toggle
-						h.Div(h.Class("souls-pause-toggle"),
-							h.Form(h.Action("/api/souls/toggle-pause"), h.Method("POST"), h.ID("souls-pause-form"),
-								h.Button(
-									h.Type("submit"),
-									h.Class(fmt.Sprintf("toggle-button %s", map[bool]string{true: "paused", false: "active"}[soulManager.IsPaused()])),
-									h.Title(fmt.Sprintf("Click to %s souls", map[bool]string{true: "resume", false: "pause"}[soulManager.IsPaused()])),
-									g.Text(fmt.Sprintf("Souls: %s", map[bool]string{true: "⏸ Paused", false: "▶ Running"}[soulManager.IsPaused()])),
-								),
-							),
-						),
 					),
 					h.Nav(h.Class("navbar-menu"),
 						h.A(h.Href("/agents"), h.Class("navbar-item"), g.Text("Agents")),
-						h.A(h.Href("/souls"), h.Class("navbar-item"), g.Text(fmt.Sprintf("Souls (%d)", standbyCount))),
 						h.A(h.Href("/files"), h.Class("navbar-item"), g.Text("Files")),
 						h.A(h.Href("/git"), h.Class("navbar-item"), g.Text("Git")),
 						h.A(h.Href("/mcps"), h.Class("navbar-item"), g.Text("MCPs")),
