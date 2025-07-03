@@ -39,6 +39,7 @@ type AgentStatusInfo struct {
 	Duration     time.Duration
 	Error        string
 	PlanContent  string
+	Command      string
 }
 
 // GetAllAgentsStatusJSON returns status of all active agents for web interface
@@ -51,6 +52,12 @@ func GetAllAgentsStatusJSON() []AgentStatusInfo {
 		status := "active"
 		if agent.Status != "active" {
 			status = string(agent.Status)
+		}
+
+		// Get the full agent to access the command string
+		var command string
+		if fullAgent, err := agentManager.GetAgent(agent.ID); err == nil && fullAgent != nil {
+			command = fullAgent.GetCommandString()
 		}
 
 		result = append(result, AgentStatusInfo{
@@ -66,6 +73,7 @@ func GetAllAgentsStatusJSON() []AgentStatusInfo {
 			Duration:     agent.Duration,
 			Error:        agent.Error,
 			PlanContent:  agent.PlanContent,
+			Command:      command,
 		})
 	}
 
@@ -320,7 +328,7 @@ func createCodeAgent(task, workDir string, selectedMCPs []string) (string, error
 		if err := VerifyMCPServers(selectedMCPs, mcpStore, workDir); err != nil {
 			return "", fmt.Errorf("MCP server verification failed: %w", err)
 		}
-		
+
 		backupFile, err = CreateMCPConfigFile(workDir, selectedMCPs, mcpStore)
 		if err != nil {
 			return "", fmt.Errorf("failed to create MCP config: %w", err)
@@ -338,9 +346,11 @@ func createCodeAgent(task, workDir string, selectedMCPs []string) (string, error
 	}
 
 	// Set up cleanup callback for when agent finishes
-	if backupFile != "" {
+	// Always set callback if MCP config was created, even if no backup exists
+	if len(selectedMCPs) > 0 {
 		if agent, err := agentManager.GetAgent(agentID); err == nil && agent != nil {
 			agent.SetCompletionCallback(func(a *codeagent.Agent) {
+				// Always clean up MCP config, whether backup exists or not
 				RestoreMCPConfigFile(workDir, backupFile)
 			})
 		}
@@ -1153,7 +1163,7 @@ Task: %s`, branchName, task, branchName, branchName, task)
 				}
 				return
 			}
-			
+
 			backupFile, err = CreateMCPConfigFile(tempDir, selectedMCPs, mcpStore)
 			if err != nil {
 				os.RemoveAll(tempDir)
@@ -1187,8 +1197,8 @@ Task: %s`, branchName, task, branchName, branchName, task)
 		// Set up cleanup callback for when agent finishes
 		if agent, err := agentManager.GetAgent(agentID); err == nil && agent != nil {
 			agent.SetCompletionCallback(func(a *codeagent.Agent) {
-				// Restore MCP config
-				if backupFile != "" {
+				// Always clean up MCP config, whether backup exists or not
+				if len(selectedMCPs) > 0 {
 					RestoreMCPConfigFile(tempDir, backupFile)
 				}
 				// Note: tempDir cleanup is handled elsewhere

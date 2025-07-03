@@ -10,6 +10,7 @@ import (
 	"mavis/soul"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -63,6 +64,8 @@ func handleSoulRoutes(w http.ResponseWriter, r *http.Request) {
 			handleLaunchAgentForm(w, r)
 		case "test":
 			handleTestSoul(w, r)
+		case "run-again":
+			handleRunAgain(w, r)
 		default:
 			http.Error(w, "Not found", http.StatusNotFound)
 		}
@@ -197,6 +200,11 @@ func soulCard(s *soul.Soul) g.Node {
 		),
 		h.Div(h.Class("soul-actions"),
 			h.A(h.Href(fmt.Sprintf("/souls/%s", s.ID)), h.Class("button small"), g.Text("View Details")),
+			g.If(s.Status == soul.SoulStatusStandby,
+				h.Form(h.Action(fmt.Sprintf("/souls/%s/run-again", s.ID)), h.Method("POST"), h.Style("display: inline;"),
+					h.Button(h.Type("submit"), h.Class("button small primary"), g.Text("Run Again")),
+				),
+			),
 			h.Form(h.Action(fmt.Sprintf("/souls/%s/delete", s.ID)), h.Method("POST"), h.Style("display: inline;"),
 				h.Button(h.Type("submit"), h.Class("button small danger"), g.Text("Delete")),
 			),
@@ -342,12 +350,13 @@ func handleSoulDetails(w http.ResponseWriter, r *http.Request) {
 									h.Td(h.Code(g.Text(iter.AgentID))),
 									h.Td(g.Text(iter.Purpose)),
 									h.Td(g.Text(iter.StartedAt.Format("15:04:05"))),
-									h.Td(g.If(iter.CompletedAt != nil,
-										g.Text(iter.CompletedAt.Format("15:04:05")),
-									),
-										g.If(iter.CompletedAt == nil,
-											g.Text("In Progress"),
-										),
+									h.Td(
+										func() g.Node {
+											if iter.CompletedAt != nil {
+												return g.Text(iter.CompletedAt.Format("15:04:05"))
+											}
+											return g.Text("In Progress")
+										}(),
 									),
 									h.Td(g.Text(iter.Result)),
 								)
@@ -540,6 +549,44 @@ func handleTestSoul(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/agents", http.StatusSeeOther)
 }
 
+// handleRunAgain handles running a standby soul again
+func handleRunAgain(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	soulID := strings.TrimPrefix(strings.TrimSuffix(r.URL.Path, "/run-again"), "/souls/")
+
+	// Get the soul to verify it exists and is in standby
+	s, err := soulManager.GetSoul(soulID)
+	if err != nil {
+		SetFlash(w, "error", "Soul not found")
+		http.Redirect(w, r, "/souls", http.StatusSeeOther)
+		return
+	}
+
+	if s.Status != soul.SoulStatusStandby {
+		SetFlash(w, "error", "Soul is not in standby status")
+		http.Redirect(w, r, "/souls", http.StatusSeeOther)
+		return
+	}
+
+	// Update soul status to working
+	s.Status = soul.SoulStatusWorking
+	if err := soulManager.UpdateSoul(s); err != nil {
+		SetFlash(w, "error", fmt.Sprintf("Failed to update soul status: %v", err))
+		http.Redirect(w, r, "/souls", http.StatusSeeOther)
+		return
+	}
+
+	// Launch a test agent to restart the soul's development cycle
+	launchTestAgent(soulID)
+
+	SetFlash(w, "success", fmt.Sprintf("Soul '%s' is running again! Check the agents page to monitor progress.", s.Name))
+	http.Redirect(w, r, "/agents", http.StatusSeeOther)
+}
+
 // Handle the launch agent form display and submission
 func handleLaunchAgentForm(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/souls/"), "/")
@@ -629,7 +676,8 @@ func handleLaunchAgentForm(w http.ResponseWriter, r *http.Request) {
 func launchNextAgent(s *soul.Soul, testFeedback string) {
 	// Build prompt based on test feedback
 	prompt := fmt.Sprintf("Soul: %s\n\n", s.Name)
-	prompt += "Purpose: Address the issues identified in the test feedback below and continue development\n\n"
+	prompt += "IMPORTANT: Focus on ONE specific task at a time. The development process is iterative - you don't need to fix everything in one go.\n\n"
+	prompt += "Purpose: Address ONE of the most critical issues from the test feedback below\n\n"
 
 	if len(s.Objectives) > 0 {
 		prompt += "Objectives:\n"
@@ -649,7 +697,14 @@ func launchNextAgent(s *soul.Soul, testFeedback string) {
 
 	prompt += "Test Feedback:\n"
 	prompt += testFeedback
-	prompt += "\n\nAddress the issues mentioned above and work towards making the application production ready."
+	prompt += "\n\n"
+	prompt += "INSTRUCTIONS:\n"
+	prompt += "1. Read through all the feedback\n"
+	prompt += "2. Pick ONE specific issue or feature to work on\n"
+	prompt += "3. Focus only on that single task\n"
+	prompt += "4. Make sure your changes are complete and working\n"
+	prompt += "5. After you finish, another agent will be launched to continue with the remaining work\n\n"
+	prompt += "Remember: Quality over quantity. It's better to fully complete one task than to partially complete many."
 
 	// Launch the agent
 	agentID, err := agentManager.LaunchAgent(context.Background(), s.ProjectPath, prompt)
@@ -752,7 +807,12 @@ func handleLaunchAgentForSoul(w http.ResponseWriter, r *http.Request) {
 		prompt += "Your task is to thoroughly test that the application meets ALL the objectives and requirements listed below.\n"
 		prompt += "At the end of your testing, you MUST output one of the following:\n"
 		prompt += "1. The exact text \"PRODUCTION READY\" (without quotes) if ALL objectives are met and the application is ready\n"
-		prompt += "2. A detailed prompt for a new agent describing what still needs to be done if the application is NOT ready\n\n"
+		prompt += "2. If NOT ready, provide a PRIORITIZED list of issues. Start with the MOST CRITICAL issue that blocks production readiness.\n\n"
+		prompt += "When listing issues:\n"
+		prompt += "- List them in order of priority (most critical first)\n"
+		prompt += "- Be specific about what needs to be fixed\n"
+		prompt += "- Focus on functional issues rather than nice-to-haves\n"
+		prompt += "- Remember: The next agent will work on ONE issue at a time\n\n"
 	} else if req.Purpose != "" {
 		prompt += fmt.Sprintf("Purpose: %s\n\n", req.Purpose)
 	}
@@ -797,7 +857,8 @@ func handleLaunchAgentForSoul(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if isTestIteration {
-		prompt += "\nRemember: After testing, output either \"PRODUCTION READY\" or a detailed prompt for what needs to be done next.\n"
+		prompt += "\nRemember: After testing, output either \"PRODUCTION READY\" or a prioritized list of issues (most critical first).\n"
+		prompt += "The development process is iterative - the next agent will tackle one issue at a time.\n"
 	}
 
 	// Create a completion callback for the agent
@@ -827,14 +888,33 @@ func handleLaunchAgentForSoul(w http.ResponseWriter, r *http.Request) {
 
 		// Check if this was a test iteration
 		if isTestIteration && agent.Status == codeagent.StatusFinished {
-			// Check if the output contains "PRODUCTION READY"
-			if strings.Contains(strings.TrimSpace(result), "PRODUCTION READY") {
+			// Check if the output is exactly "PRODUCTION READY"
+			if strings.TrimSpace(result) == "PRODUCTION READY" {
 				// Mark the soul as standby (production ready)
 				s.Status = soul.SoulStatusStandby
 				if err := soulManager.UpdateSoul(s); err != nil {
 					log.Printf("Failed to update soul status to standby: %v", err)
 				}
 				log.Printf("Soul %s is PRODUCTION READY! Moving to standby.", s.ID)
+
+				// Execute git push ai command in the project folder
+				go func() {
+					log.Printf("Executing git push for PRODUCTION READY soul %s at %s", s.ID, s.ProjectPath)
+
+					// Create a new context for the git command
+					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+					defer cancel()
+
+					// Execute git push ai command
+					cmd := exec.CommandContext(ctx, "bash", "-c", fmt.Sprintf("cd '%s' && git push ai", s.ProjectPath))
+					output, err := cmd.CombinedOutput()
+
+					if err != nil {
+						log.Printf("Failed to execute git push for soul %s: %v, output: %s", s.ID, err, string(output))
+					} else {
+						log.Printf("Successfully executed git push for soul %s, output: %s", s.ID, string(output))
+					}
+				}()
 			} else {
 				// The output should contain a prompt for the next agent
 				// Extract the prompt (everything after the test results)

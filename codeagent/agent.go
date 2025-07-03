@@ -598,3 +598,10 @@ type AgentInfo struct {
 	Duration    time.Duration
 	PlanContent string // Content of CURRENT_PLAN.md (preserved on error)
 }
+
+// GetCommandString returns the command string that was executed
+func (a *Agent) GetCommandString() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.cmdString
+}

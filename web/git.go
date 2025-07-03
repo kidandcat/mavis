@@ -11,7 +11,7 @@ func GitSection(folderPath string, diff string, showDiff bool) g.Node {
 	if folderPath == "" {
 		folderPath = "."
 	}
-	
+
 	return h.Div(h.ID("git-section"), h.Class("section"),
 		h.Div(h.Class("section-header"),
 			h.H2(g.Text("Git Operations")),
@@ -58,7 +58,7 @@ func GitSection(folderPath string, diff string, showDiff bool) g.Node {
 			h.Div(h.Class("section-header"),
 				h.H3(g.Text("Pull Request Operations")),
 			),
-			
+
 			h.Div(h.Class("pr-operations"),
 				// PR Review/Approval Form
 				h.Div(h.Class("pr-review-form"),
@@ -67,9 +67,9 @@ func GitSection(folderPath string, diff string, showDiff bool) g.Node {
 						h.ID("pr-review-form"),
 						h.Method("post"),
 						h.Action("/api/git/pr/review"),
-						
+
 						h.Input(h.Type("hidden"), h.Name("folder"), h.Value(folderPath)),
-						
+
 						h.Div(h.Class("form-group"),
 							h.Label(h.For("pr-url"), g.Text("PR URL:")),
 							h.Input(
@@ -81,7 +81,7 @@ func GitSection(folderPath string, diff string, showDiff bool) g.Node {
 								h.Required(),
 							),
 						),
-						
+
 						h.Div(h.Class("form-group"),
 							h.Label(h.For("pr-action"), g.Text("Action:")),
 							h.Select(
@@ -93,7 +93,7 @@ func GitSection(folderPath string, diff string, showDiff bool) g.Node {
 								h.Option(h.Value("request-changes"), g.Text("Request Changes")),
 							),
 						),
-						
+
 						h.Button(
 							h.Type("submit"),
 							h.Class("btn btn-primary"),
@@ -102,7 +102,7 @@ func GitSection(folderPath string, diff string, showDiff bool) g.Node {
 					),
 				),
 			),
-			
+
 			h.Div(h.ID("pr-result"), h.Class("pr-result")),
 		),
 	)

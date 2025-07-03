@@ -2,9 +2,9 @@ package web
 
 import (
 	"fmt"
-	"net/http"
 	"mavis/soul"
-	
+	"net/http"
+
 	g "maragu.dev/gomponents"
 	c "maragu.dev/gomponents/components"
 	h "maragu.dev/gomponents/html"
@@ -29,7 +29,7 @@ func FlashMessageComponent(flash *FlashMessage) g.Node {
 	if flash == nil {
 		return nil
 	}
-	
+
 	return h.Div(
 		h.Class(fmt.Sprintf("notification %s", flash.Type)),
 		g.Text(flash.Message),

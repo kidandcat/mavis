@@ -461,7 +461,7 @@ func TestMCPAgentIntegration(t *testing.T) {
 	// Test 2: Verify MCP server availability (this should fail)
 	t.Run("VerifyMCPServerAvailability", func(t *testing.T) {
 		// Test the new MCP verification functionality
-		
+
 		// Test with failing MCP
 		err := VerifyMCPServer(failingMCP, tmpDir)
 		if err == nil {
@@ -469,7 +469,7 @@ func TestMCPAgentIntegration(t *testing.T) {
 		} else {
 			t.Logf("Got expected error: %v", err)
 		}
-		
+
 		// Test VerifyMCPServers function
 		selectedMCPs := []string{failingMCP.ID}
 		err = VerifyMCPServers(selectedMCPs, store, tmpDir)
@@ -478,7 +478,7 @@ func TestMCPAgentIntegration(t *testing.T) {
 		} else {
 			t.Logf("Got expected error: %v", err)
 		}
-		
+
 		// Add a valid MCP (using a common command)
 		validMCP := &MCP{
 			ID:      "test-valid-mcp",
@@ -491,7 +491,7 @@ func TestMCPAgentIntegration(t *testing.T) {
 		if err != nil {
 			t.Errorf("Failed to add valid MCP: %v", err)
 		}
-		
+
 		// Test with valid MCP
 		err = VerifyMCPServer(validMCP, tmpDir)
 		if err != nil {
@@ -502,16 +502,16 @@ func TestMCPAgentIntegration(t *testing.T) {
 	// Test 3: Agent should fail if MCP server is not available
 	t.Run("AgentShouldFailWithoutMCP", func(t *testing.T) {
 		// Test that agent creation fails when MCP server is not available
-		
+
 		// Save the global mcpStore temporarily
 		oldStore := mcpStore
 		mcpStore = store
 		defer func() { mcpStore = oldStore }()
-		
+
 		// Try to create agent with failing MCP
 		selectedMCPs := []string{failingMCP.ID}
 		_, err := createCodeAgent("test task", tmpDir, selectedMCPs)
-		
+
 		if err == nil {
 			t.Error("Expected error when creating agent with failing MCP, got nil")
 		} else if !strings.Contains(err.Error(), "MCP server verification failed") {
@@ -519,7 +519,7 @@ func TestMCPAgentIntegration(t *testing.T) {
 		} else {
 			t.Logf("Got expected error: %v", err)
 		}
-		
+
 		// Verify no .mcp.json was left behind
 		mcpFile := filepath.Join(tmpDir, ".mcp.json")
 		if _, err := os.Stat(mcpFile); err == nil {

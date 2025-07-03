@@ -28,7 +28,7 @@ func InitializeGlobals(botInstance *bot.Bot, manager *codeagent.Manager, soulMgr
 	soulManager = soulMgr
 	AdminUserID = adminID
 	ProjectDir = projectDir
-	
+
 	// Initialize MCP store with user-level config
 	homeDir, _ := os.UserHomeDir()
 	configDir := filepath.Join(homeDir, ".config", "mavis")

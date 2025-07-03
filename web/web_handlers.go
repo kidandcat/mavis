@@ -71,7 +71,7 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 			progress = getAgentProgress(agent.ID)
 			plan = getAgentPlan(agent.ID)
 		}
-		
+
 		agentStatuses[i] = AgentStatus{
 			ID:           agent.ID,
 			Task:         agent.Task,
@@ -93,7 +93,7 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 	// Get query parameters
 	modalParam := r.URL.Query().Get("modal")
 	dirParam := r.URL.Query().Get("dir")
-	
+
 	// Check directory and get branches if modal is create and dir is provided
 	var branches []string
 	if modalParam == "create" && dirParam != "" {
@@ -108,9 +108,16 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	
+
 	// Render the appropriate section based on path
 	var content g.Node
+
+	// Check if this is a souls route
+	if strings.HasPrefix(path, "/souls") {
+		handleSoulRoutes(w, r)
+		return
+	}
+
 	switch path {
 	case "/", "/agents":
 		content = AgentsSection(agentStatuses, modalParam, dirParam, branches)
@@ -155,9 +162,6 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 		content = SystemSection()
 	case "/mcps":
 		content = MCPsSection(r)
-	case "/souls":
-		handleSoulsList(w, r)
-		return
 	default:
 		content = AgentsSection(agentStatuses, modalParam, dirParam, branches)
 	}
@@ -179,7 +183,7 @@ func handleAgentStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	agentID := pathParts[3]
-	
+
 	// Check if progress-only is requested
 	if r.URL.Query().Get("progress-only") == "true" {
 		progress := getAgentProgress(agentID)
@@ -190,7 +194,7 @@ func handleAgentStatus(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	
+
 	status := getAgentStatus(agentID)
 
 	if status == "" {
@@ -238,7 +242,7 @@ func handleStopAgent(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/agents", http.StatusSeeOther)
 		return
 	}
-	
+
 	// Return success JSON
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "stopped", "id": agentID})
@@ -258,7 +262,7 @@ func handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	agentID := pathParts[3]
-	
+
 	// Remove the agent from the manager
 	err := agentManager.RemoveAgent(agentID)
 	if err != nil {
@@ -279,7 +283,7 @@ func handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/agents", http.StatusSeeOther)
 		return
 	}
-	
+
 	// Return success JSON
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "id": agentID})
@@ -338,24 +342,24 @@ func handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/agents", http.StatusSeeOther)
 		return
 	}
-	
+
 	// API call - return JSON response
 	// Check if agent is being prepared
 	if strings.HasPrefix(agentID, "preparing-") {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"ID":            agentID,
-			"Task":          req.Task,
-			"Status":        "preparing",
-			"Message":       "Agent is being prepared with git branch setup. You'll be notified when it's ready.",
-			"StartTime":     time.Now(),
-			"LastActive":    time.Now(),
-			"MessagesSent":  0,
-			"IsStale":       false,
+			"ID":           agentID,
+			"Task":         req.Task,
+			"Status":       "preparing",
+			"Message":      "Agent is being prepared with git branch setup. You'll be notified when it's ready.",
+			"StartTime":    time.Now(),
+			"LastActive":   time.Now(),
+			"MessagesSent": 0,
+			"IsStale":      false,
 		})
 		return
 	}
-	
+
 	// Check if agent was queued
 	if strings.HasPrefix(agentID, "queued-") {
 		// Parse queue information
@@ -477,7 +481,7 @@ func handleGitCommit(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/agents", http.StatusSeeOther)
 		return
 	}
-	
+
 	// API call - return JSON
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -663,11 +667,11 @@ func handlePRCreate(w http.ResponseWriter, r *http.Request) {
 
 	// Check if this is a form submission (redirect) or API call (JSON)
 	if r.Header.Get("Content-Type") != "application/json" {
-		// Form submission - redirect back to git page
-		http.Redirect(w, r, fmt.Sprintf("/git?folder=%s&success=pr_create_launched", req.Folder), http.StatusSeeOther)
+		// Form submission - redirect to agents page
+		http.Redirect(w, r, "/agents", http.StatusSeeOther)
 		return
 	}
-	
+
 	// API call - return JSON
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -717,11 +721,11 @@ func handlePRReview(w http.ResponseWriter, r *http.Request) {
 
 	// Check if this is a form submission (redirect) or API call (JSON)
 	if r.Header.Get("Content-Type") != "application/json" {
-		// Form submission - redirect back to git page
-		http.Redirect(w, r, fmt.Sprintf("/git?folder=%s&success=pr_review_launched", req.Folder), http.StatusSeeOther)
+		// Form submission - redirect to agents page
+		http.Redirect(w, r, "/agents", http.StatusSeeOther)
 		return
 	}
-	
+
 	// API call - return JSON
 	actionText := "review"
 	if req.Action == "approve" {
@@ -729,7 +733,7 @@ func handlePRReview(w http.ResponseWriter, r *http.Request) {
 	} else if req.Action == "request-changes" {
 		actionText = "review and request changes on"
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
@@ -749,9 +753,9 @@ func handleCheckDirectory(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"exists": false,
+			"exists":    false,
 			"isGitRepo": false,
-			"error": fmt.Sprintf("Error resolving directory path: %v", err),
+			"error":     fmt.Sprintf("Error resolving directory path: %v", err),
 		})
 		return
 	}
@@ -759,11 +763,11 @@ func handleCheckDirectory(w http.ResponseWriter, r *http.Request) {
 	// Check if directory exists
 	info, err := os.Stat(absDir)
 	exists := err == nil && info.IsDir()
-	
+
 	response := map[string]interface{}{
-		"exists": exists,
+		"exists":    exists,
 		"isGitRepo": false,
-		"branches": []string{},
+		"branches":  []string{},
 	}
 
 	if !exists {

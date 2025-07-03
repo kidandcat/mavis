@@ -14,16 +14,16 @@ func TestSoulProductionReadyLoop(t *testing.T) {
 	testSoul.AddObjective("Add authentication")
 	testSoul.AddRequirement("Use Go")
 	testSoul.AddRequirement("Include tests")
-	
+
 	// Test the production ready check logic
 	testCases := []struct {
-		name           string
-		agentOutput    string
-		expectReady    bool
+		name        string
+		agentOutput string
+		expectReady bool
 	}{
 		{
 			name:        "Production ready output",
-			agentOutput: "All tests pass!\nPRODUCTION READY",
+			agentOutput: "PRODUCTION READY",
 			expectReady: true,
 		},
 		{
@@ -31,8 +31,13 @@ func TestSoulProductionReadyLoop(t *testing.T) {
 			agentOutput: "Tests failing. Need to fix authentication module.",
 			expectReady: false,
 		},
+		{
+			name:        "Production ready with extra text",
+			agentOutput: "All tests pass!\nPRODUCTION READY",
+			expectReady: false,
+		},
 	}
-	
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Check if output contains "PRODUCTION READY"
@@ -45,28 +50,26 @@ func TestSoulProductionReadyLoop(t *testing.T) {
 }
 
 func containsProductionReady(output string) bool {
-	return len(output) > 0 && (output == "PRODUCTION READY" || 
-		len(output) > 16 && (output[len(output)-16:] == "PRODUCTION READY" ||
-		output[:16] == "PRODUCTION READY"))
+	return strings.TrimSpace(output) == "PRODUCTION READY"
 }
 
 func TestSoulIterations(t *testing.T) {
 	testSoul := soul.NewSoul("", "/tmp/test-project")
-	
+
 	// Start an iteration
 	iter := testSoul.StartIteration("agent-123", "Test objectives")
 	if iter.Number != 1 {
 		t.Errorf("Expected iteration number 1, got %d", iter.Number)
 	}
-	
+
 	// Complete the iteration
 	testSoul.CompleteIteration("agent-123", "Not ready yet")
-	
+
 	// Check iteration was completed
 	if testSoul.Iterations[0].CompletedAt == nil {
 		t.Error("Iteration should be marked as completed")
 	}
-	
+
 	// Start another iteration
 	iter2 := testSoul.StartIteration("agent-456", "Fix issues")
 	if iter2.Number != 2 {
@@ -76,7 +79,7 @@ func TestSoulIterations(t *testing.T) {
 
 func TestSoulFeedback(t *testing.T) {
 	testSoul := soul.NewSoul("", "/tmp/test-project")
-	
+
 	// Add a feature
 	feature := soul.Feature{
 		Name:          "REST API",
@@ -85,11 +88,11 @@ func TestSoulFeedback(t *testing.T) {
 		AgentID:       "agent-123",
 	}
 	testSoul.AddImplementedFeature(feature)
-	
+
 	if len(testSoul.Feedback.ImplementedFeatures) != 1 {
 		t.Errorf("Expected 1 feature, got %d", len(testSoul.Feedback.ImplementedFeatures))
 	}
-	
+
 	// Add a bug
 	bug := soul.Bug{
 		ID:          "bug-1",
@@ -100,11 +103,11 @@ func TestSoulFeedback(t *testing.T) {
 		AgentID:     "agent-123",
 	}
 	testSoul.AddBug(bug)
-	
+
 	if len(testSoul.Feedback.KnownBugs) != 1 {
 		t.Errorf("Expected 1 bug, got %d", len(testSoul.Feedback.KnownBugs))
 	}
-	
+
 	// Add test result
 	testResult := soul.TestResult{
 		TestName:   "API Authentication Test",
@@ -114,7 +117,7 @@ func TestSoulFeedback(t *testing.T) {
 		AgentID:    "agent-123",
 	}
 	testSoul.AddTestResult(testResult)
-	
+
 	if len(testSoul.Feedback.TestResults) != 1 {
 		t.Errorf("Expected 1 test result, got %d", len(testSoul.Feedback.TestResults))
 	}
@@ -152,11 +155,11 @@ func TestSoulPauseStateConcurrency(t *testing.T) {
 func TestSoulLoopTestPromptGeneration(t *testing.T) {
 	// Test the test iteration prompt would contain necessary elements
 	purpose := "Test that the application meets all objectives"
-	
+
 	// In actual implementation, this would be built in handleLaunchAgentForSoul
 	// Here we verify the logic would work correctly
 	isTestIteration := purpose == "Test that the application meets all objectives"
-	
+
 	if !isTestIteration {
 		t.Error("Should recognize test iteration by purpose")
 	}
@@ -165,11 +168,11 @@ func TestSoulLoopTestPromptGeneration(t *testing.T) {
 // Test agent output parsing
 func TestAgentOutputParsing(t *testing.T) {
 	testCases := []struct {
-		name           string
-		output         string
+		name             string
+		output           string
 		expectedFeatures int
-		expectedBugs   int
-		expectedTests  int
+		expectedBugs     int
+		expectedTests    int
 	}{
 		{
 			name: "Structured output",
@@ -188,8 +191,8 @@ Test results:
 ❌ Product API tests: 2 out of 20 tests failed
 `,
 			expectedFeatures: 3,
-			expectedBugs: 2,
-			expectedTests: 2,
+			expectedBugs:     2,
+			expectedTests:    2,
 		},
 		{
 			name: "Inline mentions",
@@ -201,23 +204,23 @@ Bug: The search function doesn't handle Unicode properly.
 All tests passed successfully!
 `,
 			expectedFeatures: 2,
-			expectedBugs: 1,
-			expectedTests: 1,
+			expectedBugs:     1,
+			expectedTests:    1,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			features, bugs, testResults := soul.ParseAgentOutput(tc.output, "test-agent")
-			
+
 			if len(features) < tc.expectedFeatures {
 				t.Errorf("Expected at least %d features, got %d", tc.expectedFeatures, len(features))
 			}
-			
+
 			if len(bugs) < tc.expectedBugs {
 				t.Errorf("Expected at least %d bugs, got %d", tc.expectedBugs, len(bugs))
 			}
-			
+
 			if len(testResults) < tc.expectedTests {
 				t.Errorf("Expected at least %d test results, got %d", tc.expectedTests, len(testResults))
 			}
@@ -228,15 +231,15 @@ All tests passed successfully!
 // Test production ready detection
 func TestProductionReadyDetection(t *testing.T) {
 	testCases := []struct {
-		name        string
-		output      string
+		name          string
+		output        string
 		shouldBeReady bool
 	}{
 		{
 			name: "Clear production ready",
 			output: `All objectives met, all tests passing.
 PRODUCTION READY`,
-			shouldBeReady: true,
+			shouldBeReady: false, // Now requires exact match
 		},
 		{
 			name: "Production ready with whitespace",
@@ -246,6 +249,11 @@ Tests complete.
 PRODUCTION READY
 
 `,
+			shouldBeReady: false, // Now requires exact match
+		},
+		{
+			name:          "Exact production ready match",
+			output:        "PRODUCTION READY",
 			shouldBeReady: true,
 		},
 		{
@@ -263,15 +271,15 @@ The following work needs to be done:
 			name: "Contains production ready but not as final status",
 			output: `The goal is to make this PRODUCTION READY but we're not there yet.
 Still need to fix authentication.`,
-			shouldBeReady: true, // Current implementation will detect this as ready (known limitation)
+			shouldBeReady: false, // Fixed: Now correctly detects this as NOT ready
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// This simulates the check in handleLaunchAgentForSoul
-			isReady := strings.Contains(strings.TrimSpace(tc.output), "PRODUCTION READY")
-			
+			isReady := strings.TrimSpace(tc.output) == "PRODUCTION READY"
+
 			if isReady != tc.shouldBeReady {
 				t.Errorf("Expected ready=%v, got %v for output: %s", tc.shouldBeReady, isReady, tc.output)
 			}

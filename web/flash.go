@@ -19,14 +19,14 @@ func SetFlash(w http.ResponseWriter, flashType, message string) {
 		Type:    flashType,
 		Message: message,
 	}
-	
+
 	data, err := json.Marshal(flash)
 	if err != nil {
 		return
 	}
-	
+
 	encoded := base64.URLEncoding.EncodeToString(data)
-	
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     flashCookieName,
 		Value:    encoded,
@@ -43,7 +43,7 @@ func GetFlash(w http.ResponseWriter, r *http.Request) *FlashMessage {
 	if err != nil {
 		return nil
 	}
-	
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     flashCookieName,
 		Value:    "",
@@ -54,17 +54,17 @@ func GetFlash(w http.ResponseWriter, r *http.Request) *FlashMessage {
 		MaxAge:   -1,
 		Expires:  time.Unix(0, 0),
 	})
-	
+
 	decoded, err := base64.URLEncoding.DecodeString(cookie.Value)
 	if err != nil {
 		return nil
 	}
-	
+
 	var flash FlashMessage
 	if err := json.Unmarshal(decoded, &flash); err != nil {
 		return nil
 	}
-	
+
 	return &flash
 }
 

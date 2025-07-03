@@ -25,6 +25,7 @@ type AgentStatus struct {
 	Duration     time.Duration
 	Error        string
 	PlanContent  string
+	Command      string
 }
 
 // safeSubstring safely extracts a substring, handling cases where the string is shorter than requested
@@ -73,7 +74,7 @@ func categorizeAgents(agents []AgentStatus) (planning, queued, running, finished
 			running = append(running, agent)
 		}
 	}
-	
+
 	// Sort each column by ID
 	sort.Slice(planning, func(i, j int) bool {
 		return planning[i].ID < planning[j].ID
@@ -87,7 +88,7 @@ func categorizeAgents(agents []AgentStatus) (planning, queued, running, finished
 	sort.Slice(finished, func(i, j int) bool {
 		return finished[i].ID < finished[j].ID
 	})
-	
+
 	return
 }
 
@@ -213,6 +214,15 @@ func AgentCard(agent AgentStatus) g.Node {
 			),
 			h.Div(h.Class("agent-output"),
 				h.Pre(g.Text(output)),
+			),
+			// Show command for failed agents
+			g.If(agent.Command != "" && (agent.Status == "failed" || agent.Status == "error" || agent.Status == "killed" || agent.Status == "stopped"),
+				h.Div(h.Class("agent-command"),
+					h.Div(h.Class("command-header"), g.Text("Command executed:")),
+					h.Div(h.Class("command-content"),
+						h.Pre(g.Text(agent.Command)),
+					),
+				),
 			),
 			// Show CURRENT_PLAN.md content for failed agents
 			g.If(agent.PlanContent != "" && (agent.Status == "failed" || agent.Status == "error" || agent.Status == "killed" || agent.Status == "stopped"),

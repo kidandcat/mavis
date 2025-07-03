@@ -101,7 +101,7 @@ func (s *MCPStore) save() error {
 func (s *MCPStore) List() []*MCP {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	mcps := make([]*MCP, 0, len(s.mcps))
 	for _, mcp := range s.mcps {
 		mcps = append(mcps, mcp)
@@ -121,11 +121,11 @@ func (s *MCPStore) Get(id string) (*MCP, bool) {
 func (s *MCPStore) Add(mcp *MCP) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	if mcp.ID == "" {
 		mcp.ID = generateID()
 	}
-	
+
 	s.mcps[mcp.ID] = mcp
 	return s.save()
 }
@@ -134,11 +134,11 @@ func (s *MCPStore) Add(mcp *MCP) error {
 func (s *MCPStore) Update(id string, mcp *MCP) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	if _, ok := s.mcps[id]; !ok {
 		return fmt.Errorf("MCP not found: %s", id)
 	}
-	
+
 	mcp.ID = id
 	s.mcps[id] = mcp
 	return s.save()
@@ -148,7 +148,7 @@ func (s *MCPStore) Update(id string, mcp *MCP) error {
 func (s *MCPStore) Delete(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	delete(s.mcps, id)
 	return s.save()
 }
@@ -156,7 +156,7 @@ func (s *MCPStore) Delete(id string) error {
 // CreateMCPConfigFile creates a .mcp.json file in the working directory
 func CreateMCPConfigFile(workDir string, selectedMCPs []string, store *MCPStore) (string, error) {
 	mcpFile := filepath.Join(workDir, ".mcp.json")
-	
+
 	// Check if file already exists and back it up
 	backupFile := ""
 	if _, err := os.Stat(mcpFile); err == nil {
@@ -166,21 +166,21 @@ func CreateMCPConfigFile(workDir string, selectedMCPs []string, store *MCPStore)
 		}
 		fmt.Printf("[MCP] Backed up existing .mcp.json to %s\n", backupFile)
 	}
-	
+
 	// Create new config
 	config := MCPConfig{
 		MCPServers: make(map[string]MCPServer),
 	}
-	
+
 	fmt.Printf("[MCP] Creating .mcp.json with %d selected servers\n", len(selectedMCPs))
-	
+
 	for _, mcpID := range selectedMCPs {
 		mcp, ok := store.Get(mcpID)
 		if !ok {
 			fmt.Printf("[MCP] Warning: MCP server ID %s not found in store\n", mcpID)
 			continue
 		}
-		
+
 		config.MCPServers[mcp.Name] = MCPServer{
 			Command: mcp.Command,
 			Args:    mcp.Args,
@@ -188,35 +188,43 @@ func CreateMCPConfigFile(workDir string, selectedMCPs []string, store *MCPStore)
 		}
 		fmt.Printf("[MCP] Added server: %s (command: %s)\n", mcp.Name, mcp.Command)
 	}
-	
+
 	// Write config file
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return "", err
 	}
-	
+
 	if err := os.WriteFile(mcpFile, data, 0644); err != nil {
 		return "", err
 	}
-	
+
 	fmt.Printf("[MCP] Successfully created .mcp.json at %s\n", mcpFile)
 	fmt.Printf("[MCP] Content:\n%s\n", string(data))
-	
+
 	return backupFile, nil
 }
 
-// RestoreMCPConfigFile restores the original .mcp.json file
+// RestoreMCPConfigFile restores the original .mcp.json file or removes it
 func RestoreMCPConfigFile(workDir string, backupFile string) error {
 	mcpFile := filepath.Join(workDir, ".mcp.json")
-	
-	// Remove the temporary file
-	os.Remove(mcpFile)
-	
+
+	// Always remove the temporary .mcp.json file first
+	if err := os.Remove(mcpFile); err != nil && !os.IsNotExist(err) {
+		// Log the error but don't fail - we still want to try restoring backup
+		fmt.Printf("[MCP] Warning: failed to remove .mcp.json: %v\n", err)
+	}
+
 	// Restore backup if it exists
 	if backupFile != "" {
-		return os.Rename(backupFile, mcpFile)
+		if err := os.Rename(backupFile, mcpFile); err != nil {
+			return fmt.Errorf("failed to restore backup: %w", err)
+		}
+		fmt.Printf("[MCP] Restored original .mcp.json from backup\n")
+	} else {
+		fmt.Printf("[MCP] Removed .mcp.json (no backup to restore)\n")
 	}
-	
+
 	return nil
 }
 
@@ -229,12 +237,12 @@ func generateID() string {
 func VerifyMCPServer(mcp *MCP, workDir string) error {
 	// We can't directly test MCP server connectivity since that's handled by claude CLI
 	// But we can at least verify the command exists and is executable
-	
+
 	// Check if the command exists
 	if mcp.Command == "" {
 		return fmt.Errorf("MCP server command is empty")
 	}
-	
+
 	// Check if it's an absolute path
 	if filepath.IsAbs(mcp.Command) {
 		// Check if file exists and is executable
@@ -252,7 +260,7 @@ func VerifyMCPServer(mcp *MCP, workDir string) error {
 			return fmt.Errorf("MCP server command not found in PATH: %s", mcp.Command)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -263,7 +271,7 @@ func VerifyMCPServers(selectedMCPs []string, store *MCPStore, workDir string) er
 		if !ok {
 			return fmt.Errorf("MCP server not found: %s", mcpID)
 		}
-		
+
 		if err := VerifyMCPServer(mcp, workDir); err != nil {
 			return fmt.Errorf("MCP server '%s' verification failed: %w", mcp.Name, err)
 		}

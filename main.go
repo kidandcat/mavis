@@ -9,10 +9,12 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"mavis/codeagent"
@@ -223,6 +225,39 @@ func main() {
 	}
 
 	log.Println("[STARTUP] All initialization complete - starting bot...")
+
+	// Set up signal handling
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, 
+		syscall.SIGINT,    // Interrupt (Ctrl+C)
+		syscall.SIGTERM,   // Termination
+		syscall.SIGQUIT,   // Quit
+		syscall.SIGHUP,    // Hangup
+		syscall.SIGUSR1,   // User-defined signal 1
+		syscall.SIGUSR2,   // User-defined signal 2
+	)
+
+	// Start signal handler goroutine
+	go func() {
+		sig := <-sigChan
+		log.Printf("[SIGNAL] Received signal: %s (%d)", sig.String(), sig)
+		
+		// Send shutdown notification to admin
+		shutdownMsg := fmt.Sprintf("🛑 Mavis shutting down\n📡 Signal: %s", sig.String())
+		_, _ = Bot.SendMessage(context.Background(), &bot.SendMessageParams{
+			ChatID: AdminUserID,
+			Text:   shutdownMsg,
+		})
+
+		// Cancel context to trigger graceful shutdown
+		cancel()
+		
+		// Give some time for cleanup
+		time.Sleep(2 * time.Second)
+		
+		log.Printf("[SIGNAL] Exiting due to signal: %s", sig.String())
+		os.Exit(0)
+	}()
 
 	// Start bot with error handling
 	if err := startBotWithErrorHandling(ctx); err != nil {
