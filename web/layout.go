@@ -3,6 +3,7 @@ package web
 import (
 	"fmt"
 	"net/http"
+	"mavis/soul"
 	
 	g "maragu.dev/gomponents"
 	c "maragu.dev/gomponents/components"
@@ -58,6 +59,16 @@ func DashboardLayoutWithRefresh(w http.ResponseWriter, r *http.Request, children
 	// Get flash message
 	flash := GetFlash(w, r)
 
+	// Count standby souls
+	standbyCount := 0
+	if souls, err := soulManager.ListSouls(); err == nil {
+		for _, s := range souls {
+			if s.Status == soul.SoulStatusStandby {
+				standbyCount++
+			}
+		}
+	}
+
 	return c.HTML5(
 		c.HTML5Props{
 			Title:    "Mavis Dashboard",
@@ -81,7 +92,7 @@ func DashboardLayoutWithRefresh(w http.ResponseWriter, r *http.Request, children
 					),
 					h.Nav(h.Class("navbar-menu"),
 						h.A(h.Href("/agents"), h.Class("navbar-item"), g.Text("Agents")),
-						h.A(h.Href("/souls"), h.Class("navbar-item"), g.Text("Souls")),
+						h.A(h.Href("/souls"), h.Class("navbar-item"), g.Text(fmt.Sprintf("Souls (%d)", standbyCount))),
 						h.A(h.Href("/files"), h.Class("navbar-item"), g.Text("Files")),
 						h.A(h.Href("/git"), h.Class("navbar-item"), g.Text("Git")),
 						h.A(h.Href("/mcps"), h.Class("navbar-item"), g.Text("MCPs")),

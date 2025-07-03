@@ -1056,15 +1056,9 @@ code {
 }
 
 .souls-columns {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
+    display: flex;
+    flex-direction: column;
     gap: var(--space-lg);
-}
-
-@media (max-width: 1024px) {
-    .souls-columns {
-        grid-template-columns: 1fr;
-    }
 }
 
 .soul-column {

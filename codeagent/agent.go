@@ -159,7 +159,13 @@ func (a *Agent) Start(ctx context.Context) error {
 		escapedPrompt = "IMPORTANT: MCP servers have been configured for this session. The available tools from MCP servers should be accessible to you.\n\n" + escapedPrompt
 	}
 	
-	cmdString := fmt.Sprintf("cd '%s' && claude --dangerously-skip-permissions -p '%s'", a.Folder, escapedPrompt)
+	// Build the claude command with MCP config if present
+	cmdString := ""
+	if hasMCPConfig {
+		cmdString = fmt.Sprintf("cd '%s' && claude --dangerously-skip-permissions --mcp-config .mcp.json -p '%s'", a.Folder, escapedPrompt)
+	} else {
+		cmdString = fmt.Sprintf("cd '%s' && claude --dangerously-skip-permissions -p '%s'", a.Folder, escapedPrompt)
+	}
 	log.Printf("[Agent] Executing command: %s", cmdString)
 	a.cmd = exec.CommandContext(ctx, "/bin/sh", "-c", cmdString)
 	
