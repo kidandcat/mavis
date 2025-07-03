@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.mavis.bot</string>
+    
+    <key>ProgramArguments</key>
+    <array>
+        <string>/path/to/your/mavis/mavis</string>
+    </array>
+    
+    <key>WorkingDirectory</key>
+    <string>/path/to/your/mavis</string>
+    
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>TELEGRAM_BOT_TOKEN</key>
+        <string>YOUR_TELEGRAM_BOT_TOKEN_HERE</string>
+        <key>ADMIN_USER_ID</key>
+        <string>YOUR_TELEGRAM_USER_ID</string>
+        <key>ONLINE_SERVER_URL</key>
+        <string>https://your-server-url.example.com</string>
+        <key>WEB_PORT</key>
+        <string>80</string>
+        <key>WEB_PASSWORD</key>
+        <string>YOUR_SECURE_PASSWORD_HERE</string>
+        <key>HOME</key>
+        <string>/Users/YOUR_USERNAME</string>
+        <key>USER</key>
+        <string>YOUR_USERNAME</string>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+    
+    <key>RunAtLoad</key>
+    <true/>
+    
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+        <key>Crashed</key>
+        <true/>
+    </dict>
+    
+    <key>StandardOutPath</key>
+    <string>/Users/YOUR_USERNAME/Library/Logs/mavis/stdout.log</string>
+    
+    <key>StandardErrorPath</key>
+    <string>/Users/YOUR_USERNAME/Library/Logs/mavis/stderr.log</string>
+    
+    <key>ProcessType</key>
+    <string>Interactive</string>
+    
+    <key>Nice</key>
+    <integer>10</integer>
+    
+    <key>LowPriorityIO</key>
+    <true/>
+    
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+    
+    <key>ExitTimeOut</key>
+    <integer>30</integer>
+    
+    <key>SoftResourceLimits</key>
+    <dict>
+        <key>NumberOfProcesses</key>
+        <integer>512</integer>
+        <key>NumberOfFiles</key>
+        <integer>4096</integer>
+        <key>ResidentSetSize</key>
+        <integer>2147483648</integer>
+    </dict>
+    
+    <key>HardResourceLimits</key>
+    <dict>
+        <key>NumberOfProcesses</key>
+        <integer>1024</integer>
+        <key>NumberOfFiles</key>
+        <integer>8192</integer>
+        <key>ResidentSetSize</key>
+        <integer>4294967296</integer>
+    </dict>
+</dict>
+</plist>

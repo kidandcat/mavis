@@ -806,11 +806,16 @@ func handleLaunchAgentForSoul(w http.ResponseWriter, r *http.Request) {
 		prompt += "IMPORTANT: You are testing whether this application is production ready.\n\n"
 		prompt += "Your task is to thoroughly test that the application meets ALL the objectives and requirements listed below.\n"
 		prompt += "At the end of your testing, you MUST output one of the following:\n"
-		prompt += "1. The exact text \"PRODUCTION READY\" (without quotes) if ALL objectives are met and the application is ready\n"
+		prompt += "1. The exact text \"PRODUCTION READY\" (without quotes) ONLY if:\n"
+		prompt += "   - ALL objectives are met\n"
+		prompt += "   - ALL requirements are satisfied\n"
+		prompt += "   - There are NO bugs or errors in the application\n"
+		prompt += "   - Everything is working correctly\n"
 		prompt += "2. If NOT ready, provide a PRIORITIZED list of issues. Start with the MOST CRITICAL issue that blocks production readiness.\n\n"
 		prompt += "When listing issues:\n"
 		prompt += "- List them in order of priority (most critical first)\n"
 		prompt += "- Be specific about what needs to be fixed\n"
+		prompt += "- Include any bugs or errors you find\n"
 		prompt += "- Focus on functional issues rather than nice-to-haves\n"
 		prompt += "- Remember: The next agent will work on ONE issue at a time\n\n"
 	} else if req.Purpose != "" {
@@ -873,29 +878,71 @@ func handleLaunchAgentForSoul(w http.ResponseWriter, r *http.Request) {
 			log.Printf("Failed to complete soul iteration: %v", err)
 		}
 
-		// If agent failed or was killed, set soul back to standby
+		// If agent failed or was killed, continue with the next iteration
 		if agent.Status == codeagent.StatusFailed || agent.Status == codeagent.StatusKilled {
-			s, err := soulManager.GetSoul(req.SoulID)
-			if err == nil {
-				s.Status = soul.SoulStatusStandby
-				if err := soulManager.UpdateSoul(s); err != nil {
-					log.Printf("Failed to update soul status to standby after agent failure: %v", err)
-				}
-				log.Printf("Soul %s moved to standby due to agent %s (status: %s)", s.ID, agent.ID, agent.Status)
+			log.Printf("Agent %s for soul %s failed/killed (status: %s), continuing with next iteration", agent.ID, req.SoulID, agent.Status)
+			
+			// Check if souls are paused before launching next iteration
+			if soulManager.IsPaused() {
+				log.Printf("Souls are paused. Not launching next iteration for soul %s", req.SoulID)
+				return
 			}
-			return // Don't continue the loop if agent failed
+			
+			// Launch a test agent to assess the current state
+			go func() {
+				time.Sleep(2 * time.Second) // Wait a bit to ensure cleanup
+				launchTestAgent(req.SoulID)
+			}()
+			return
 		}
 
 		// Check if this was a test iteration
 		if isTestIteration && agent.Status == codeagent.StatusFinished {
 			// Check if the output is exactly "PRODUCTION READY"
 			if strings.TrimSpace(result) == "PRODUCTION READY" {
-				// Mark the soul as standby (production ready)
+				// Before declaring production ready, verify there are no bugs
+				s, err := soulManager.GetSoul(req.SoulID)
+				if err != nil {
+					log.Printf("Failed to get soul to check bugs: %v", err)
+					return
+				}
+				
+				// Count unfixed bugs
+				unfixedBugs := 0
+				for _, bug := range s.Feedback.KnownBugs {
+					if bug.Status != "fixed" && bug.FixedAt == nil {
+						unfixedBugs++
+					}
+				}
+				
+				if unfixedBugs > 0 {
+					log.Printf("Soul %s claims PRODUCTION READY but has %d unfixed bugs. Continuing iterations.", s.ID, unfixedBugs)
+					
+					// Create a prompt to fix the bugs
+					bugPrompt := fmt.Sprintf("The test agent reported PRODUCTION READY, but there are still %d unfixed bugs:\n\n", unfixedBugs)
+					for _, bug := range s.Feedback.KnownBugs {
+						if bug.Status != "fixed" && bug.FixedAt == nil {
+							bugPrompt += fmt.Sprintf("- [%s] %s\n", bug.Severity, bug.Description)
+						}
+					}
+					bugPrompt += "\nPlease fix these bugs before the application can be considered production ready."
+					
+					// Launch next agent to fix bugs
+					go func() {
+						time.Sleep(2 * time.Second)
+						if !soulManager.IsPaused() {
+							launchNextAgent(s, bugPrompt)
+						}
+					}()
+					return
+				}
+				
+				// No bugs found, proceed with marking as production ready
 				s.Status = soul.SoulStatusStandby
 				if err := soulManager.UpdateSoul(s); err != nil {
 					log.Printf("Failed to update soul status to standby: %v", err)
 				}
-				log.Printf("Soul %s is PRODUCTION READY! Moving to standby.", s.ID)
+				log.Printf("Soul %s is PRODUCTION READY! No bugs remaining. Moving to standby.", s.ID)
 
 				// Execute git push ai command in the project folder
 				go func() {
