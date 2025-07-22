@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -111,7 +113,6 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 
 	// Render the appropriate section based on path
 	var content g.Node
-
 
 	switch path {
 	case "/", "/agents":
@@ -601,12 +602,21 @@ func handleWebRestart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Set flash message and redirect to root
-	SetSuccessFlash(w, "Mavis is restarting...")
+	SetSuccessFlash(w, "Mavis is building and restarting...")
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 
 	// Schedule restart after a short delay to allow redirect to be sent
 	go func() {
 		time.Sleep(1 * time.Second)
+
+		// Run go build
+		cmd := exec.Command("go", "build", ".")
+		if err := cmd.Run(); err != nil {
+			// Log error (can't send response back at this point)
+			log.Printf("Build failed: %v", err)
+			return
+		}
+
 		os.Exit(0)
 	}()
 }
@@ -720,9 +730,10 @@ func handlePRReview(w http.ResponseWriter, r *http.Request) {
 
 	// API call - return JSON
 	actionText := "review"
-	if req.Action == "approve" {
+	switch req.Action {
+	case "approve":
 		actionText = "review and approve"
-	} else if req.Action == "request-changes" {
+	case "request-changes":
 		actionText = "review and request changes on"
 	}
 

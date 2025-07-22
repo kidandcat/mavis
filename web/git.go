@@ -79,22 +79,28 @@ func GitSection(folderPath string, diff string, showDiff bool) g.Node {
 							),
 						),
 
-						h.Div(h.Class("form-group"),
-							h.Label(h.For("pr-action"), g.Text("Action:")),
-							h.Select(
-								h.ID("pr-action"),
+						h.Div(h.Class("form-group button-group"),
+							h.Button(
+								h.Type("submit"),
 								h.Name("action"),
-								h.Class("form-control"),
-								h.Option(h.Value("approve"), g.Text("Review & Approve")),
-								h.Option(h.Value("review"), g.Text("Review Only")),
-								h.Option(h.Value("request-changes"), g.Text("Request Changes")),
+								h.Value("review"),
+								h.Class("btn btn-secondary"),
+								g.Text("Review Only"),
 							),
-						),
-
-						h.Button(
-							h.Type("submit"),
-							h.Class("btn btn-primary"),
-							g.Text("Submit Review"),
+							h.Button(
+								h.Type("submit"),
+								h.Name("action"),
+								h.Value("approve"),
+								h.Class("btn btn-success"),
+								g.Text("Review & Approve"),
+							),
+							h.Button(
+								h.Type("submit"),
+								h.Name("action"),
+								h.Value("request-changes"),
+								h.Class("btn btn-warning"),
+								g.Text("Request Changes"),
+							),
 						),
 					),
 				),

@@ -249,6 +249,18 @@ a:hover {
     font-size: 0.8rem;
 }
 
+/* Button Groups */
+.button-group {
+    display: flex;
+    gap: var(--space-sm);
+    flex-wrap: wrap;
+}
+
+.button-group button {
+    flex: 1;
+    min-width: 120px;
+}
+
 /* Forms */
 .form-group {
     margin-bottom: var(--space-sm);
@@ -750,23 +762,44 @@ code {
     border-radius: 4px;
     padding: var(--space-sm);
     overflow-x: auto;
+    font-size: 5px;
+    line-height: 1.2;
+}
+
+.git-diff pre {
+    margin: 0;
+    font-size: inherit;
+    columns: 2;
+    column-gap: 20px;
+    column-rule: 1px solid var(--panel-border);
 }
 
 .diff-add {
     color: var(--success-color);
+    display: inline-block;
+    width: 100%;
 }
 
 .diff-remove {
     color: var(--danger-color);
+    display: inline-block;
+    width: 100%;
 }
 
 .diff-hunk {
     color: var(--info-color);
+    display: inline-block;
+    width: 100%;
+    break-inside: avoid;
 }
 
 .diff-header {
     color: var(--warning-color);
     font-weight: bold;
+    display: inline-block;
+    width: 100%;
+    break-inside: avoid;
+    column-span: all;
 }
 
 /* File browser */

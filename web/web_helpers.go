@@ -17,7 +17,6 @@ import (
 
 	"mavis/codeagent"
 	"mavis/core"
-	"syscall"
 )
 
 var (
@@ -249,7 +248,7 @@ func getAgentStatus(agentID string) string {
 		var status strings.Builder
 		status.WriteString(fmt.Sprintf("Agent ID: %s\n", agent.ID))
 		status.WriteString(fmt.Sprintf("Task: %s\n", agent.Task))
-		status.WriteString(fmt.Sprintf("Status: QUEUED\n"))
+		status.WriteString("Status: QUEUED\n")
 		status.WriteString(fmt.Sprintf("Queue Status: %s\n", agent.QueueStatus))
 		status.WriteString("\nThis agent is waiting for another agent to complete in the same directory.")
 		return status.String()
@@ -364,33 +363,6 @@ func createCodeAgent(task, workDir string, selectedMCPs []string) (string, error
 	}
 
 	return agentID, nil
-}
-
-func gitCommit(message string) (string, error) {
-	cmd := exec.Command("git", "commit", "-m", message)
-	output, err := cmd.CombinedOutput()
-	return string(output), err
-}
-
-// getDiskUsage returns disk usage information for the current directory
-func getDiskUsage() (uint64, error) {
-	var stat syscall.Statfs_t
-	wd, err := os.Getwd()
-	if err != nil {
-		return 0, err
-	}
-
-	err = syscall.Statfs(wd, &stat)
-	if err != nil {
-		return 0, err
-	}
-
-	// Calculate used space
-	total := stat.Blocks * uint64(stat.Bsize)
-	free := stat.Bavail * uint64(stat.Bsize)
-	used := total - free
-
-	return used, nil
 }
 
 // serveStatic serves static files
@@ -739,56 +711,6 @@ func getGitDiff(path string) (string, error) {
 	return string(output), nil
 }
 
-// commitAndPush commits and pushes changes
-func commitAndPush(workDir, message string) (string, error) {
-	if !isGitRepo(workDir) {
-		return "", fmt.Errorf("not a git repository")
-	}
-
-	// Check for changes
-	cmd := exec.Command("git", "status", "--porcelain")
-	cmd.Dir = workDir
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("git status failed: %s", output)
-	}
-
-	if len(strings.TrimSpace(string(output))) == 0 {
-		return "No changes to commit", nil
-	}
-
-	// Add all changes
-	cmd = exec.Command("git", "add", "-A")
-	cmd.Dir = workDir
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("git add failed: %v", err)
-	}
-
-	// Commit
-	if message == "" {
-		message = "Update from Mavis web interface"
-	}
-	cmd = exec.Command("git", "commit", "-m", message)
-	cmd.Dir = workDir
-	output, err = cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("git commit failed: %s", output)
-	}
-
-	result := string(output)
-
-	// Push
-	cmd = exec.Command("git", "push")
-	cmd.Dir = workDir
-	output, err = cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("git push failed: %s", output)
-	}
-
-	result += "\n" + string(output)
-	return result, nil
-}
-
 // runCommand runs a command in a directory
 func runCommand(workDir, command string, args ...string) (string, error) {
 	cmd := exec.Command(command, args...)
@@ -815,15 +737,6 @@ func isGitRepo(dir string) bool {
 	cmd.Dir = dir
 	err := cmd.Run()
 	return err == nil
-}
-
-// resolvePath resolves a path (alias for ResolvePath)
-func resolvePath(path string) string {
-	resolved, err := ResolvePath(path)
-	if err != nil {
-		return path
-	}
-	return resolved
 }
 
 // ResolvePath is a wrapper around core.ResolvePath for the web package
@@ -1261,9 +1174,7 @@ func listGitBranches(workDir string) ([]string, error) {
 	for _, line := range lines {
 		branch := strings.TrimSpace(line)
 		// Remove "origin/" prefix if present
-		if strings.HasPrefix(branch, "origin/") {
-			branch = strings.TrimPrefix(branch, "origin/")
-		}
+		branch = strings.TrimPrefix(branch, "origin/")
 		// Skip HEAD reference
 		if branch != "" && branch != "HEAD" && !branchMap[branch] {
 			branches = append(branches, branch)
