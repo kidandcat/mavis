@@ -645,7 +645,6 @@ func (ia *InteractiveAgent) readOutput(reader io.Reader, source string) {
 		if n > 0 {
 			data := string(buf[:n])
 			
-			
 			// Process through terminal buffer
 			ia.termMutex.Lock()
 			ia.termBuffer.ProcessOutput(data)
@@ -653,14 +652,9 @@ func (ia *InteractiveAgent) readOutput(reader io.Reader, source string) {
 			// Get current screen state
 			screenLines := ia.termBuffer.GetScreenLines()
 			
-			// Convert entire screen to HTML - include ALL lines to maintain positioning
+			// Process and filter the output
 			ia.outputMutex.Lock()
-			ia.outputBuffer = make([]string, len(screenLines))
-			for i, line := range screenLines {
-				// Convert each line, even if empty (to maintain screen structure)
-				htmlLine := ansiToHTML(line)
-				ia.outputBuffer[i] = htmlLine
-			}
+			ia.outputBuffer = ia.filterAndProcessOutput(screenLines)
 			ia.outputMutex.Unlock()
 			ia.termMutex.Unlock()
 			
@@ -680,6 +674,99 @@ func (ia *InteractiveAgent) readOutput(reader io.Reader, source string) {
 	}
 	
 	log.Printf("[InteractiveAgent %s] Finished reading from %s", ia.ID, source)
+}
+
+// filterAndProcessOutput processes the terminal screen and filters out UI elements
+func (ia *InteractiveAgent) filterAndProcessOutput(screenLines []string) []string {
+	if len(screenLines) == 0 {
+		return []string{}
+	}
+	
+	// Find the token status line (it's usually near the bottom)
+	var tokenStatusLine string
+	var tokenStatusIndex int = -1
+	
+	// Search from bottom up for the most recent token status
+	for i := len(screenLines) - 1; i >= 0; i-- {
+		trimmed := strings.TrimSpace(screenLines[i])
+		if trimmed != "" && strings.Contains(trimmed, "tokens") && strings.Contains(trimmed, "esc to interrupt") {
+			tokenStatusLine = screenLines[i]
+			tokenStatusIndex = i
+			break
+		}
+	}
+	
+	// Build the filtered output
+	var result []string
+	var seenContent = make(map[string]bool)
+	
+	// Process all lines except UI elements
+	for i := 0; i < len(screenLines); i++ {
+		// Skip the token status line itself (we'll add it at the end)
+		if i == tokenStatusIndex {
+			continue
+		}
+		
+		line := screenLines[i]
+		trimmed := strings.TrimSpace(line)
+		
+		// Skip empty lines initially
+		if trimmed == "" && len(result) == 0 {
+			continue
+		}
+		
+		// Skip input box UI elements
+		if strings.HasPrefix(trimmed, "╭─") || strings.HasPrefix(trimmed, "│") || 
+		   strings.HasPrefix(trimmed, "╰─") || strings.HasPrefix(trimmed, "─╮") ||
+		   strings.HasPrefix(trimmed, "─╯") || 
+		   (trimmed == ">" || (strings.HasPrefix(trimmed, "> ") && len(trimmed) < 80)) ||
+		   strings.Contains(trimmed, "? for shortcuts") || 
+		   strings.Contains(trimmed, "Bypassing Permissions") ||
+		   strings.Contains(trimmed, "Auto-update failed") {
+			continue
+		}
+		
+		// Skip token status lines (we only want the last one)
+		if strings.Contains(trimmed, "tokens") && strings.Contains(trimmed, "esc to interrupt") {
+			continue
+		}
+		
+		// Check for duplicate content (especially tool lines)
+		contentKey := trimmed
+		// For tool execution lines, use just the command part as key
+		if strings.HasPrefix(trimmed, "⏺") || strings.HasPrefix(trimmed, "✓") || 
+		   strings.HasPrefix(trimmed, "✗") || strings.HasPrefix(trimmed, "✢") ||
+		   strings.HasPrefix(trimmed, "+") || strings.HasPrefix(trimmed, "*") {
+			// Extract just the command part for deduplication
+			if idx := strings.Index(trimmed, "("); idx > 0 {
+				endIdx := strings.Index(trimmed[idx:], ")")
+				if endIdx > 0 {
+					contentKey = trimmed[:idx+endIdx+1]
+				}
+			}
+		}
+		
+		// Skip if we've seen this exact content before
+		if contentKey != "" && seenContent[contentKey] {
+			continue
+		}
+		seenContent[contentKey] = true
+		
+		// Add the line
+		result = append(result, ansiToHTML(line))
+	}
+	
+	// Always show the token status line at the bottom if available
+	if tokenStatusLine != "" {
+		// Add a separator line
+		result = append(result, "")
+		result = append(result, "─────────────────────────────────────────────────────────────────────────────")
+		result = append(result, "")
+		// Add the token status line
+		result = append(result, ansiToHTML(tokenStatusLine))
+	}
+	
+	return result
 }
 
 // isOnlyCursorMovement checks if a line contains only cursor movement sequences

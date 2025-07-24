@@ -309,41 +309,43 @@ func InteractiveSessionView(sessionID string) g.Node {
 				h.A(h.Href("/interactive"), h.Class("close-btn"), g.Text("×")),
 			),
 			
-			
-			// Folder info
-			h.P(h.Class("folder-info"), g.Text(fmt.Sprintf("Working in: %s", agent.Folder))),
-			
-			// Show error prominently if failed
-			g.If(agent.Status == "failed" && agent.Error != "",
-				h.Div(h.Class("error-box"),
-					h.Strong(g.Text("Error: ")),
-					h.Pre(g.Text(agent.Error)),
-				),
-			),
-			
-			// Output area - terminal style
-			h.Div(h.Class("session-output"),
-				h.Pre(h.Style("margin: 0; padding: 0; background: transparent; border: none;"),
-					g.Raw(outputHTML),
-				),
-			),
-			
-			// Actions (only if running)
-			g.If(agent.Status == "running",
-				h.Div(h.Class("session-actions"),
-					h.A(
-						h.Href(fmt.Sprintf("/interactive?modal=session-%s-input", sessionID)),
-						h.Class("btn btn-primary"),
-						g.Text("Send Message"),
+			// Modal body wrapper for flex layout
+			h.Div(h.Class("modal-body"),
+				// Folder info
+				h.P(h.Class("folder-info"), g.Text(fmt.Sprintf("Working in: %s", agent.Folder))),
+				
+				// Show error prominently if failed
+				g.If(agent.Status == "failed" && agent.Error != "",
+					h.Div(h.Class("error-box"),
+						h.Strong(g.Text("Error: ")),
+						h.Pre(g.Text(agent.Error)),
 					),
-					h.Form(
-						h.Method("POST"),
-						h.Action(fmt.Sprintf("/api/interactive/%s/stop", sessionID)),
-						h.Style("display: inline-block; margin-left: 0.5rem;"),
-						h.Button(
-							h.Type("submit"),
-							h.Class("btn btn-secondary"),
-							g.Text("Stop Session"),
+				),
+				
+				// Output area - terminal style
+				h.Div(h.Class("session-output"),
+					h.Pre(h.Style("margin: 0; padding: 0; background: transparent; border: none; flex: 1;"),
+						g.Raw(outputHTML),
+					),
+				),
+				
+				// Actions (only if running)
+				g.If(agent.Status == "running",
+					h.Div(h.Class("session-actions"),
+						h.A(
+							h.Href(fmt.Sprintf("/interactive?modal=session-%s-input", sessionID)),
+							h.Class("btn btn-primary"),
+							g.Text("Send Message"),
+						),
+						h.Form(
+							h.Method("POST"),
+							h.Action(fmt.Sprintf("/api/interactive/%s/stop", sessionID)),
+							h.Style("display: inline-block; margin-left: 0.5rem;"),
+							h.Button(
+								h.Type("submit"),
+								h.Class("btn btn-secondary"),
+								g.Text("Stop Session"),
+							),
 						),
 					),
 				),
