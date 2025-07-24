@@ -155,6 +155,8 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 		content = SystemSection()
 	case "/mcps":
 		content = MCPsSection(r)
+	case "/interactive":
+		content = InteractiveSection(modalParam, dirParam)
 	default:
 		content = AgentsSection(agentStatuses, modalParam, dirParam, branches)
 	}

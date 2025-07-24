@@ -616,7 +616,8 @@ small, .text-muted {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: var(--space-md);
+    margin-bottom: var(--space-sm);
+    flex-shrink: 0;
 }
 
 .modal-header h3 {
@@ -1005,4 +1006,186 @@ code {
     padding: 2px 6px;
     border-radius: 3px;
     color: var(--info-color);
+}
+
+/* Interactive Agents Styles */
+.interactive-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: var(--space-md);
+    margin-top: var(--space-lg);
+}
+
+.interactive-card {
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: var(--space-md);
+    transition: all var(--transition-speed);
+}
+
+.interactive-card:hover {
+    border-color: var(--primary-color);
+    box-shadow: 0 4px 8px rgba(0, 255, 255, 0.1);
+}
+
+.interactive-card .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-sm);
+}
+
+.interactive-card .card-header h3 {
+    margin: 0;
+    font-size: 1.1rem;
+    color: var(--primary-color);
+}
+
+.interactive-card .status-badge {
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    background: var(--darker-bg);
+    color: var(--text-secondary);
+}
+
+.interactive-card.running .status-badge {
+    background: rgba(0, 255, 0, 0.2);
+    color: #00ff00;
+}
+
+.interactive-card.failed .status-badge,
+.interactive-card.killed .status-badge {
+    background: rgba(255, 0, 0, 0.2);  
+    color: #ff4444;
+}
+
+.interactive-card.finished .status-badge {
+    background: rgba(0, 123, 255, 0.2);
+    color: #4444ff;
+}
+
+.interactive-card .card-body {
+    margin-bottom: var(--space-sm);
+}
+
+.interactive-card .folder-path {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-bottom: var(--space-xs);
+    word-break: break-all;
+}
+
+.interactive-card .time-info {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.interactive-card .error-message {
+    margin-top: var(--space-sm);
+    padding: var(--space-sm);
+    background: rgba(255, 0, 0, 0.1);
+    border: 1px solid rgba(255, 0, 0, 0.3);
+    border-radius: 4px;
+}
+
+.interactive-card .error-message pre {
+    margin: 0;
+    font-size: 0.85rem;
+    color: #ff4444;
+}
+
+.interactive-card .card-actions {
+    display: flex;
+    gap: var(--space-xs);
+    margin-top: var(--space-sm);
+}
+
+/* Session output styles */
+.session-output {
+    background: #000000;
+    border: 1px solid var(--panel-border);
+    border-radius: 4px;
+    padding: var(--space-sm);
+    flex: 1;
+    overflow: hidden;
+    margin: var(--space-sm) 0;
+    font-family: 'Share Tech Mono', 'Courier New', monospace;
+    font-size: 14px;
+    line-height: 1.2;
+    white-space: pre;
+    position: relative;
+    min-height: 600px;
+}
+
+.session-output pre {
+    margin: 0;
+    font-family: 'Share Tech Mono', 'Courier New', monospace;
+    font-size: 0.9rem;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    color: var(--text-primary);
+    background: transparent;
+    border: none;
+    padding: 0;
+}
+
+/* Ensure spans inside pre inherit font */
+.session-output pre span {
+    font-family: inherit;
+}
+
+.session-actions {
+    margin-top: var(--space-sm);
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.folder-info {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-bottom: var(--space-xs);
+    flex-shrink: 0;
+}
+
+.empty-state {
+    text-align: center;
+    padding: var(--space-xl) 0;
+    color: var(--text-secondary);
+}
+
+.empty-state .help-text {
+    font-size: 0.9rem;
+    margin-top: var(--space-xs);
+}
+
+/* Modal large variant */
+.modal-content.modal-large {
+    max-width: 95%;
+    width: 95%;
+    height: 95vh;
+    max-height: 95vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Error Box */
+.error-box {
+    background-color: #fee;
+    border: 1px solid #f88;
+    color: #c00;
+    padding: 12px;
+    border-radius: 4px;
+    margin-bottom: 16px;
+}
+
+.error-box pre {
+    margin: 8px 0 0 0;
+    background: none;
+    border: none;
+    padding: 0;
+    color: inherit;
+    white-space: pre-wrap;
 }

@@ -35,6 +35,7 @@ func StartWebServer(port string) error {
 	// Main routes - serve full pages
 	mux.HandleFunc("/", handleDashboard)
 	mux.HandleFunc("/agents", handleDashboard)
+	mux.HandleFunc("/interactive", handleDashboard)
 	mux.HandleFunc("/files", handleDashboard)
 	mux.HandleFunc("/git", handleDashboard)
 	mux.HandleFunc("/system", handleDashboard)
@@ -56,6 +57,10 @@ func StartWebServer(port string) error {
 	// JSON API endpoints
 	mux.HandleFunc("/api/agents", handleWebAgents)
 	mux.HandleFunc("/api/mcps", handleMCPRoutes)
+	
+	// Interactive agent endpoints
+	mux.HandleFunc("/api/interactive", handleInteractiveRoutes)
+	mux.HandleFunc("/api/interactive/", handleInteractiveAgentAction)
 
 	// SSE removed - using meta refresh instead
 	// mux.HandleFunc("/events", handleSSE)
