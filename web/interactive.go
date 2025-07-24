@@ -385,6 +385,8 @@ func InteractiveInputModal(sessionID string) g.Node {
 						h.Placeholder("Type your message..."),
 						g.Attr("autofocus", ""),
 						g.Attr("required", ""),
+						g.Attr("enterkeyhint", "send"),
+						g.Attr("inputmode", "text"),
 					),
 				),
 				
