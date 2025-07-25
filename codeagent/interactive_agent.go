@@ -656,12 +656,6 @@ func (ia *InteractiveAgent) readOutput(reader io.Reader, source string) {
 		if n > 0 {
 			data := string(buf[:n])
 			
-			// Debug: Log raw data received (truncate for readability)
-			debugData := data
-			if len(debugData) > 200 {
-				debugData = debugData[:200] + "..."
-			}
-			log.Printf("[InteractiveAgent %s] Raw PTY data (%d bytes): %q", ia.ID, n, debugData)
 			
 			// Process through terminal buffer
 			ia.termMutex.Lock()

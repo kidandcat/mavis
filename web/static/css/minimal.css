@@ -1273,6 +1273,13 @@ code {
     margin-top: var(--space-xs);
 }
 
+/* Subtitle styling for interactive page */
+.subtitle {
+    text-align: center;
+    color: var(--text-secondary);
+    margin-bottom: var(--space-md);
+}
+
 /* Modal large variant */
 .modal-content.modal-large {
     max-width: 95%;

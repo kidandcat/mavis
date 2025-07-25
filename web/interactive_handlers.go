@@ -425,6 +425,7 @@ func isUIContent(content string) bool {
 		"Try /inst",
 		"esc to interrupt",
 		"tokens",
+		"Update Todos",
 		"↑", "↓", "⚒", // Status indicators
 	}
 	
@@ -439,7 +440,20 @@ func isUIContent(content string) bool {
 		return true
 	}
 	
+	// Skip tool execution patterns like "⏺ Read(file.go)" or "Read(file.go)"
+	if isToolExecutionPattern(cleaned) {
+		return true
+	}
+	
 	return false
+}
+
+// isToolExecutionPattern checks if content matches tool execution patterns
+func isToolExecutionPattern(content string) bool {
+	// Pattern matches: "⏺ ToolName(params)" or "ToolName(params)"
+	// Examples: "⏺ Read(web/interactive_handlers.go)", "Read(web/interactive_handlers.go)"
+	toolPattern := regexp.MustCompile(`^(?:⏺\s+)?[A-Za-z][A-Za-z0-9]*\([^)]*\)\s*$`)
+	return toolPattern.MatchString(content)
 }
 
 // stripANSICodes removes ANSI escape codes from text
