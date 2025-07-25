@@ -445,6 +445,11 @@ func isUIContent(content string) bool {
 		return true
 	}
 	
+	// Skip tool execution with status like "⏺ Bash(git push)" followed by "⎿  Running…"
+	if strings.Contains(cleaned, "⎿") && strings.Contains(cleaned, "Running") {
+		return true
+	}
+	
 	return false
 }
 
