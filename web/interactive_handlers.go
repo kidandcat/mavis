@@ -7,7 +7,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -219,11 +221,280 @@ func handleInteractiveInput(w http.ResponseWriter, r *http.Request, agentID stri
 		SetErrorFlash(w, fmt.Sprintf("Failed to send input: %v", err))
 	}
 	
-	// Redirect back to session view
+	// Redirect back to session view (without modal parameter to close it)
 	http.Redirect(w, r, fmt.Sprintf("/interactive?modal=session-%s", agentID), http.StatusSeeOther)
 }
 
-// This handler is no longer needed for SSE but kept for potential future use
+// handleInteractiveStream provides HTTP streaming of conversation updates
 func handleInteractiveStream(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "Streaming not supported - use page refresh", http.StatusNotImplemented)
+	// Extract session ID from URL
+	pathParts := strings.Split(r.URL.Path, "/")
+	if len(pathParts) < 4 {
+		http.Error(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
+	
+	sessionID := pathParts[3]
+	agent := interactiveManager.GetAgent(sessionID)
+	if agent == nil {
+		http.Error(w, "Session not found", http.StatusNotFound)
+		return
+	}
+	
+	// Set headers for chunked transfer encoding
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	
+	// Enable flushing
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	
+	// Write initial HTML structure
+	fmt.Fprint(w, `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Interactive Session Stream</title>
+<link rel="stylesheet" href="/static/css/minimal.css">
+<style>
+html, body { 
+	margin: 0; 
+	padding: 0;
+	height: 100vh;
+	background: var(--surface);
+	font-family: var(--font-family);
+	overflow-y: auto;
+}
+body {
+	padding: 20px;
+	box-sizing: border-box;
+}
+.conversation-view {
+	display: flex;
+	flex-direction: column;
+	gap: 1rem;
+	min-height: calc(100vh - 40px); /* Account for padding */
+	overflow-y: auto;
+}
+</style>
+</head>
+<body>
+<div class="conversation-view">
+`)
+	flusher.Flush()
+	
+	// Subscribe to agent updates
+	subID, updates := agent.Subscribe()
+	defer agent.Unsubscribe(subID)
+	
+	// Send current message history in reverse order (newest first)
+	messages := agent.GetMessageHistory()
+	lastMessageCount := len(messages)
+	
+	for i := len(messages) - 1; i >= 0; i-- {
+		msgHTML := renderMessageHTML(messages[i])
+		if msgHTML != "" {
+			fmt.Fprintf(w, `<div style="order: %d;">%s</div>`, -i, msgHTML)
+		}
+	}
+	
+	flusher.Flush()
+	
+	// Stream updates
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	
+	ctx := r.Context()
+	
+	for {
+		select {
+		case <-ctx.Done():
+			return
+			
+		case <-updates:
+			// Get latest messages
+			messages = agent.GetMessageHistory()
+			
+			// Send only new messages at the top
+			for i := len(messages) - 1; i >= lastMessageCount; i-- {
+				msgHTML := renderMessageHTML(messages[i])
+				if msgHTML != "" {
+					fmt.Fprintf(w, `<div style="order: %d;">%s</div>`, -i, msgHTML)
+				}
+			}
+			
+			lastMessageCount = len(messages)
+			
+			flusher.Flush()
+			
+		case <-ticker.C:
+			// Send keep-alive comment
+			fmt.Fprint(w, "<!-- keepalive -->\n")
+			flusher.Flush()
+		}
+	}
+}
+
+// renderMessageHTML renders a message as HTML string
+func renderMessageHTML(msg codeagent.Message) string {
+	// Skip messages that are just UI elements
+	content := strings.TrimSpace(msg.Content)
+	if isUIContent(content) {
+		return ""
+	}
+	
+	switch msg.Type {
+	case "user":
+		return fmt.Sprintf(`<div class="message message-user">
+<div class="message-header">
+<span class="message-type">You</span>
+<span class="message-time">%s</span>
+</div>
+<div class="message-content"><pre>%s</pre></div>
+</div>`, msg.Timestamp.Format("3:04 PM"), html.EscapeString(content))
+		
+	case "assistant":
+		formatted := formatAssistantContentHTML(content)
+		tokens := ""
+		if msg.Metadata["tokens"] != "" {
+			tokens = fmt.Sprintf(`<div class="message-tokens"><span>%s</span></div>`, html.EscapeString(msg.Metadata["tokens"]))
+		}
+		return fmt.Sprintf(`<div class="message message-assistant">
+<div class="message-header">
+<span class="message-type">Claude</span>
+<span class="message-time">%s</span>
+</div>
+<div class="message-content">%s</div>
+%s
+</div>`, msg.Timestamp.Format("3:04 PM"), formatted, tokens)
+		
+	case "tool":
+		// Skip tool status updates that are just UI
+		if strings.Contains(content, "tokens") || strings.Contains(content, "esc to interrupt") {
+			return ""
+		}
+		return fmt.Sprintf(`<div class="message message-tool">
+<div class="message-header">
+<span class="message-type tool-indicator">%s</span>
+<span class="message-time">%s</span>
+</div>
+<div class="message-content"><code>%s</code></div>
+</div>`, getToolIconHTML(content), msg.Timestamp.Format("3:04 PM"), html.EscapeString(content))
+		
+	default:
+		return fmt.Sprintf(`<div class="message message-system">
+<div class="message-header">
+<span class="message-type">System</span>
+<span class="message-time">%s</span>
+</div>
+<div class="message-content"><pre>%s</pre></div>
+</div>`, msg.Timestamp.Format("3:04 PM"), html.EscapeString(content))
+	}
+}
+
+// isUIContent checks if content is just UI elements that should be filtered
+func isUIContent(content string) bool {
+	// Remove any remaining ANSI codes for checking
+	cleaned := stripANSICodes(content)
+	cleaned = strings.TrimSpace(cleaned)
+	
+	// Skip empty content
+	if cleaned == "" {
+		return true
+	}
+	
+	// Skip UI border elements
+	if strings.HasPrefix(cleaned, "╭") || strings.HasPrefix(cleaned, "╰") || 
+	   strings.HasPrefix(cleaned, "│") || strings.Contains(cleaned, "─────") {
+		return true
+	}
+	
+	// Skip common UI messages
+	uiPatterns := []string{
+		"? for shortcuts",
+		"Bypassing Permissions",
+		"Auto-update failed",
+		"Try claude doctor",
+		"npm i -g @anthropic-ai/claude-code",
+		"@anthropic-ai/claude-code",
+		"✗ Auto-update failed",
+		"Try /inst",
+		"esc to interrupt",
+		"tokens",
+		"↑", "↓", "⚒", // Status indicators
+	}
+	
+	for _, pattern := range uiPatterns {
+		if strings.Contains(cleaned, pattern) {
+			return true
+		}
+	}
+	
+	// Skip lines that are ONLY box drawing characters
+	if isOnlyBoxDrawing(cleaned) {
+		return true
+	}
+	
+	return false
+}
+
+// stripANSICodes removes ANSI escape codes from text
+func stripANSICodes(text string) string {
+	// Remove ANSI escape sequences
+	ansiRegex := regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07`)
+	return ansiRegex.ReplaceAllString(text, "")
+}
+
+// isOnlyBoxDrawing checks if a string contains only box drawing characters
+func isOnlyBoxDrawing(s string) bool {
+	for _, r := range s {
+		if r != ' ' && r != '─' && r != '│' && r != '╭' && r != '╮' && 
+		   r != '╯' && r != '╰' && r != '┴' && r != '┬' && r != '├' && 
+		   r != '┤' && r != '┼' && r != '═' && r != '║' && r != '╔' && 
+		   r != '╗' && r != '╝' && r != '╚' {
+			return false
+		}
+	}
+	return true
+}
+
+// Helper functions for HTML rendering
+func formatAssistantContentHTML(content string) string {
+	// Simple markdown-like formatting
+	escaped := html.EscapeString(content)
+	
+	// Convert code blocks
+	escaped = strings.ReplaceAll(escaped, "```", "</pre><pre>")
+	if strings.Count(escaped, "<pre>")%2 != 0 {
+		escaped += "</pre>"
+	}
+	
+	// Convert inline code
+	parts := strings.Split(escaped, "`")
+	for i := 1; i < len(parts); i += 2 {
+		if i < len(parts) {
+			parts[i] = "<code>" + parts[i] + "</code>"
+		}
+	}
+	escaped = strings.Join(parts, "")
+	
+	// Convert line breaks
+	escaped = strings.ReplaceAll(escaped, "\n", "<br>")
+	
+	return escaped
+}
+
+func getToolIconHTML(content string) string {
+	if strings.Contains(content, "✓") {
+		return "✓"
+	} else if strings.Contains(content, "✗") {
+		return "✗"
+	} else if strings.Contains(content, "⏺") {
+		return "⏺"
+	}
+	return "🔧"
 }

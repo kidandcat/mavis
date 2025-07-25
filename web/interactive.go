@@ -194,6 +194,7 @@ func renderInteractiveAgentCard(agent *InteractiveAgent) g.Node {
 // InteractiveCreateModal renders the create interactive agent modal
 func InteractiveCreateModal(dirParam string) g.Node {
 	return h.Div(h.ID("create-interactive-modal"), h.Class("modal"), h.Style("display: flex;"),
+		h.A(h.Href("/interactive"), h.Class("modal-backdrop"), g.Attr("aria-label", "Close modal")),
 		h.Div(h.Class("modal-content"),
 			h.Div(h.Class("modal-header"),
 				h.H3(g.Text("New Interactive Session")),
@@ -273,36 +274,11 @@ func InteractiveSessionView(sessionID string) g.Node {
 		)
 	}
 	
-	// Get output - this is already the terminal screen buffer
-	output := agent.GetOutput()
-	
-	// Build the terminal display with proper line structure
-	var outputHTML string
-	if len(output) > 0 {
-		// The output is already a fixed-size screen buffer
-		// Join all lines (including empty ones) to maintain screen structure
-		outputHTML = strings.Join(output, "\n")
-	} else {
-		// Handle different states with plain text
-		var statusMsg string
-		switch agent.Status {
-		case "failed":
-			if agent.Error != "" {
-				statusMsg = fmt.Sprintf("Error: %s", agent.Error)
-			} else {
-				statusMsg = "Process failed to start. Check logs for details."
-			}
-		case "finished":
-			statusMsg = "Process completed with no output."
-		case "killed":
-			statusMsg = "Process was stopped."
-		default: // running or pending
-			statusMsg = "Waiting for Claude to start..."
-		}
-		outputHTML = statusMsg
-	}
+	// Get token status
+	tokenStatus := agent.GetLastTokenStatus()
 	
 	return h.Div(h.ID("session-modal"), h.Class("modal"), h.Style("display: flex;"),
+		h.A(h.Href("/interactive"), h.Class("modal-backdrop"), g.Attr("aria-label", "Close modal")),
 		h.Div(h.Class("modal-content modal-large"),
 			h.Div(h.Class("modal-header"),
 				h.H3(g.Text(fmt.Sprintf("Session %s - %s", sessionID[:8], agent.Status))),
@@ -322,10 +298,15 @@ func InteractiveSessionView(sessionID string) g.Node {
 					),
 				),
 				
-				// Output area - terminal style
+				// Conversation area - use iframe for streaming
 				h.Div(h.Class("session-output"),
-					h.Pre(h.Style("margin: 0; padding: 0; background: transparent; border: none; flex: 1;"),
-						g.Raw(outputHTML),
+					g.Raw(fmt.Sprintf(`<iframe src="/stream/interactive/%s" title="Conversation Stream"></iframe>`, sessionID)),
+				),
+				
+				// Token status
+				g.If(tokenStatus != "",
+					h.Div(h.Class("token-status"),
+						h.Span(g.Text(tokenStatus)),
 					),
 				),
 				
@@ -365,6 +346,7 @@ func InteractiveInputModal(sessionID string) g.Node {
 	}
 	
 	return h.Div(h.ID("input-modal"), h.Class("modal"), h.Style("display: flex;"),
+		h.A(h.Href(fmt.Sprintf("/interactive?modal=session-%s", sessionID)), h.Class("modal-backdrop"), g.Attr("aria-label", "Close modal")),
 		h.Div(h.Class("modal-content"),
 			h.Div(h.Class("modal-header"),
 				h.H3(g.Text("Send Message")),
@@ -405,4 +387,112 @@ func InteractiveInputModal(sessionID string) g.Node {
 			),
 		),
 	)
+}
+
+// renderMessage renders a single message based on its type
+func renderMessage(msg codeagent.Message) g.Node {
+	messageClass := "message message-" + msg.Type
+	
+	switch msg.Type {
+	case "user":
+		return h.Div(h.Class(messageClass),
+			h.Div(h.Class("message-header"),
+				h.Span(h.Class("message-type"), g.Text("You")),
+				h.Span(h.Class("message-time"), g.Text(msg.Timestamp.Format("3:04 PM"))),
+			),
+			h.Div(h.Class("message-content"),
+				h.Pre(g.Text(msg.Content)),
+			),
+		)
+		
+	case "assistant":
+		return h.Div(h.Class(messageClass),
+			h.Div(h.Class("message-header"),
+				h.Span(h.Class("message-type"), g.Text("Claude")),
+				h.Span(h.Class("message-time"), g.Text(msg.Timestamp.Format("3:04 PM"))),
+			),
+			h.Div(h.Class("message-content"),
+				h.Div(g.Raw(formatAssistantContent(msg.Content))),
+			),
+			g.If(msg.Metadata["tokens"] != "",
+				h.Div(h.Class("message-tokens"),
+					h.Span(g.Text(msg.Metadata["tokens"])),
+				),
+			),
+		)
+		
+	case "tool":
+		return h.Div(h.Class(messageClass),
+			h.Div(h.Class("message-header"),
+				h.Span(h.Class("message-type tool-indicator"), g.Raw(getToolIcon(msg.Content))),
+				h.Span(h.Class("message-time"), g.Text(msg.Timestamp.Format("3:04 PM"))),
+			),
+			h.Div(h.Class("message-content"),
+				h.Code(g.Text(msg.Content)),
+			),
+		)
+		
+	case "system":
+		return h.Div(h.Class(messageClass),
+			h.Div(h.Class("message-header"),
+				h.Span(h.Class("message-type"), g.Text("System")),
+				h.Span(h.Class("message-time"), g.Text(msg.Timestamp.Format("3:04 PM"))),
+			),
+			h.Div(h.Class("message-content"),
+				h.Pre(g.Text(msg.Content)),
+			),
+		)
+		
+	default:
+		return h.Div(h.Class(messageClass),
+			h.Pre(g.Text(msg.Content)),
+		)
+	}
+}
+
+// formatAssistantContent formats Claude's responses with markdown support
+func formatAssistantContent(content string) string {
+	// For now, just escape HTML and preserve formatting
+	// In a production app, you'd want proper markdown parsing
+	content = strings.ReplaceAll(content, "&", "&amp;")
+	content = strings.ReplaceAll(content, "<", "&lt;")
+	content = strings.ReplaceAll(content, ">", "&gt;")
+	content = strings.ReplaceAll(content, "\n", "<br>")
+	
+	// Handle code blocks
+	if strings.Contains(content, "```") {
+		// Simple code block handling
+		parts := strings.Split(content, "```")
+		for i := 1; i < len(parts); i += 2 {
+			if i < len(parts) {
+				// Extract language if present
+				lines := strings.SplitN(parts[i], "<br>", 2)
+				if len(lines) > 1 {
+					parts[i] = `<pre><code>` + lines[1] + `</code></pre>`
+				} else {
+					parts[i] = `<pre><code>` + parts[i] + `</code></pre>`
+				}
+			}
+		}
+		content = strings.Join(parts, "")
+	}
+	
+	// Handle inline code
+	content = strings.ReplaceAll(content, "`", "<code>")
+	
+	return content
+}
+
+// getToolIcon returns an icon based on tool execution status
+func getToolIcon(content string) string {
+	if strings.HasPrefix(content, "✓") {
+		return `<span style="color: #4ade80;">✓</span>`
+	} else if strings.HasPrefix(content, "✗") {
+		return `<span style="color: #f87171;">✗</span>`
+	} else if strings.HasPrefix(content, "⏺") {
+		return `<span style="color: #60a5fa;">⏺</span>`
+	} else if strings.HasPrefix(content, "+") || strings.HasPrefix(content, "*") {
+		return `<span style="color: #facc15;">⋯</span>`
+	}
+	return `<span style="color: #94a3b8;">•</span>`
 }

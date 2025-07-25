@@ -61,6 +61,7 @@ func StartWebServer(port string) error {
 	// Interactive agent endpoints
 	mux.HandleFunc("/api/interactive", handleInteractiveRoutes)
 	mux.HandleFunc("/api/interactive/", handleInteractiveAgentAction)
+	mux.HandleFunc("/stream/interactive/", handleInteractiveStream)
 
 	// SSE removed - using meta refresh instead
 	// mux.HandleFunc("/events", handleSSE)

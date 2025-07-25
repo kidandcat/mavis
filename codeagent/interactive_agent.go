@@ -555,6 +555,9 @@ type InteractiveAgent struct {
 	// Terminal emulation
 	termBuffer   *TerminalBuffer
 	termMutex    sync.RWMutex
+	
+	// Claude parser for message history
+	parser       *ClaudeParser
 }
 
 // NewInteractiveAgent creates a new interactive agent
@@ -566,7 +569,8 @@ func NewInteractiveAgent(folder string, mcpConfig string) *InteractiveAgent {
 		StartTime:   time.Now(),
 		LastActive:  time.Now(),
 		subscribers: make(map[string]chan string),
-		termBuffer:  NewTerminalBuffer(80, 40), // Larger height for better display
+		termBuffer:  NewTerminalBuffer(120, 40), // Match PTY size
+		parser:      NewClaudeParser(),
 	}
 }
 
@@ -617,11 +621,14 @@ func (ia *InteractiveAgent) Start(ctx context.Context, mcpConfig string) error {
 	log.Printf("[InteractiveAgent %s] Process started successfully with PID: %d using PTY", ia.ID, ia.cmd.Process.Pid)
 	
 	// Set PTY size to reasonable defaults
-	if err := pty.Setsize(ia.ptmx, &pty.Winsize{
-		Rows: 24,
-		Cols: 80,
-	}); err != nil {
+	winSize := &pty.Winsize{
+		Rows: 40,
+		Cols: 120,
+	}
+	if err := pty.Setsize(ia.ptmx, winSize); err != nil {
 		log.Printf("[InteractiveAgent %s] Failed to set PTY size: %v", ia.ID, err)
+	} else {
+		log.Printf("[InteractiveAgent %s] Set PTY size to %dx%d", ia.ID, winSize.Cols, winSize.Rows)
 	}
 	
 	// Start output reader for PTY (single reader for both stdout and stderr)
@@ -629,6 +636,10 @@ func (ia *InteractiveAgent) Start(ctx context.Context, mcpConfig string) error {
 	
 	// Monitor process
 	go ia.monitorProcess()
+	
+	// Give Claude a moment to initialize
+	time.Sleep(500 * time.Millisecond)
+	log.Printf("[InteractiveAgent %s] Claude should be ready for input", ia.ID)
 	
 	return nil
 }
@@ -645,6 +656,13 @@ func (ia *InteractiveAgent) readOutput(reader io.Reader, source string) {
 		if n > 0 {
 			data := string(buf[:n])
 			
+			// Debug: Log raw data received (truncate for readability)
+			debugData := data
+			if len(debugData) > 200 {
+				debugData = debugData[:200] + "..."
+			}
+			log.Printf("[InteractiveAgent %s] Raw PTY data (%d bytes): %q", ia.ID, n, debugData)
+			
 			// Process through terminal buffer
 			ia.termMutex.Lock()
 			ia.termBuffer.ProcessOutput(data)
@@ -652,14 +670,39 @@ func (ia *InteractiveAgent) readOutput(reader io.Reader, source string) {
 			// Get current screen state
 			screenLines := ia.termBuffer.GetScreenLines()
 			
-			// Process and filter the output
+			// Feed RAW screen lines to the parser BEFORE filtering
+			// This ensures all conversation content is captured in history
+			ia.parser.ProcessTerminalBuffer(screenLines)
+			
+			// Also parse the raw data line by line for real-time capture
+			// This helps catch messages that might be overwritten by terminal updates
+			lines := strings.Split(data, "\n")
+			previousMessageCount := len(ia.parser.GetHistory())
+			
+			for _, line := range lines {
+				if line != "" {
+					ia.parser.ParseLine(line)
+				}
+			}
+			
+			// Flush any pending message in the parser
+			ia.parser.FlushPending()
+			
+			// Check if new messages were added
+			currentMessageCount := len(ia.parser.GetHistory())
+			hasNewMessages := currentMessageCount > previousMessageCount
+			
+			// Process and filter the output for display
 			ia.outputMutex.Lock()
 			ia.outputBuffer = ia.filterAndProcessOutput(screenLines)
 			ia.outputMutex.Unlock()
+			
 			ia.termMutex.Unlock()
 			
-			// Notify subscribers of update
-			ia.broadcastScreenUpdate()
+			// Notify subscribers of update - always notify if new messages
+			if hasNewMessages {
+				ia.broadcastScreenUpdate()
+			}
 			
 			// Update last active time
 			ia.LastActive = time.Now()
@@ -734,7 +777,12 @@ func (ia *InteractiveAgent) filterAndProcessOutput(screenLines []string) []strin
 		// Check for duplicate content (especially tool lines)
 		contentKey := trimmed
 		// For tool execution lines, use just the command part as key
-		if strings.HasPrefix(trimmed, "⏺") || strings.HasPrefix(trimmed, "✓") || 
+		// IMPORTANT: Don't deduplicate Claude's responses that start with ⏺
+		if strings.HasPrefix(trimmed, "⏺") && !strings.Contains(trimmed, "(") {
+			// This is Claude's response, not a tool - don't deduplicate
+			contentKey = "" // Empty key means no deduplication
+		} else if (strings.HasPrefix(trimmed, "⏺") && strings.Contains(trimmed, "(")) || 
+		   strings.HasPrefix(trimmed, "✓") || 
 		   strings.HasPrefix(trimmed, "✗") || strings.HasPrefix(trimmed, "✢") ||
 		   strings.HasPrefix(trimmed, "+") || strings.HasPrefix(trimmed, "*") {
 			// Extract just the command part for deduplication
@@ -802,7 +850,7 @@ func isRepetitiveUI(line string) bool {
 	
 	// Skip lines that ONLY contain these patterns (not mixed with actual content)
 	spinnerPatterns := []string{
-		"✻", "✶", "✳", "✢", "·", "*", "⏺",
+		"✻", "✶", "✳", "✢", "·", "*",
 	}
 	
 	for _, pattern := range spinnerPatterns {
@@ -816,6 +864,20 @@ func isRepetitiveUI(line string) bool {
 				return true
 			}
 		}
+	}
+	
+	// Special handling for ⏺ - it's used for both status updates and Claude's responses
+	if strings.HasPrefix(trimmed, "⏺ ") {
+		// Only filter out if it's a processing status, not a response
+		if strings.Contains(trimmed, "Processing…") || 
+		   strings.Contains(trimmed, "Cerebrating…") ||
+		   strings.Contains(trimmed, "esc to interrupt") ||
+		   strings.Contains(trimmed, "tokens") ||
+		   strings.Contains(trimmed, "(") { // Tool execution lines have parentheses
+			return true
+		}
+		// Otherwise, it's likely Claude's response, so keep it
+		return false
 	}
 	
 	// Skip the auto-update failed message
@@ -930,7 +992,9 @@ func (ia *InteractiveAgent) SendInput(input string) error {
 	
 	// First, send the input text
 	if input != "" {
-		n, err := ia.ptmx.Write([]byte(input))
+		inputBytes := []byte(input)
+		log.Printf("[InteractiveAgent %s] Sending input bytes: %v", ia.ID, inputBytes)
+		n, err := ia.ptmx.Write(inputBytes)
 		if err != nil {
 			log.Printf("[InteractiveAgent %s] Failed to write input text: %v", ia.ID, err)
 			return fmt.Errorf("failed to write input: %w", err)
@@ -943,6 +1007,7 @@ func (ia *InteractiveAgent) SendInput(input string) error {
 	
 	// Then send Enter key (try carriage return which is standard for Enter in terminals)
 	enterKey := []byte{'\r'}
+	log.Printf("[InteractiveAgent %s] Sending Enter key: %v", ia.ID, enterKey)
 	n2, err := ia.ptmx.Write(enterKey)
 	if err != nil {
 		log.Printf("[InteractiveAgent %s] Failed to write Enter key: %v", ia.ID, err)
@@ -1043,7 +1108,7 @@ func (iam *InteractiveAgentManager) CreateAgent(ctx context.Context, folder stri
 	
 	// Start agent
 	if err := agent.Start(ctx, mcpConfig); err != nil {
-		log.Printf("[InteractiveAgentManager] Failed to start agent %s: %v", agent.ID, err)
+		// log.Printf("[InteractiveAgentManager] Failed to start agent %s: %v", agent.ID, err)
 		return nil, err
 	}
 	
@@ -1093,4 +1158,43 @@ func (iam *InteractiveAgentManager) RemoveAgent(id string) error {
 	// Remove from map
 	delete(iam.agents, id)
 	return nil
+}
+
+// GetMessageHistory returns the full conversation history from the parser
+func (ia *InteractiveAgent) GetMessageHistory() []Message {
+	if ia.parser == nil {
+		return []Message{}
+	}
+	return ia.parser.GetHistory()
+}
+
+// GetFilteredHistory returns filtered messages based on criteria
+func (ia *InteractiveAgent) GetFilteredHistory(filter MessageFilter) []Message {
+	if ia.parser == nil {
+		return []Message{}
+	}
+	return ia.parser.GetFilteredHistory(filter)
+}
+
+// GetLastTokenStatus returns the most recent token count status
+func (ia *InteractiveAgent) GetLastTokenStatus() string {
+	if ia.parser == nil {
+		return ""
+	}
+	return ia.parser.GetLastTokenStatus()
+}
+
+// ExportHistory exports the conversation history in the specified format
+func (ia *InteractiveAgent) ExportHistory(format string) string {
+	if ia.parser == nil {
+		return ""
+	}
+	return ia.parser.ExportHistory(format)
+}
+
+// ClearHistory clears the conversation history
+func (ia *InteractiveAgent) ClearHistory() {
+	if ia.parser != nil {
+		ia.parser.ClearHistory()
+	}
 }
